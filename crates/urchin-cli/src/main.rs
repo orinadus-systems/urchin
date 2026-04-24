@@ -37,6 +37,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             std::env::var("URCHIN_LOG").unwrap_or_else(|_| "urchin=info".into()),
         )
@@ -60,8 +61,8 @@ async fn serve() -> Result<()> {
 }
 
 async fn mcp() -> Result<()> {
-    tracing::info!("urchin mcp — not yet implemented");
-    Ok(())
+    let cfg = urchin_core::config::Config::load();
+    urchin_mcp::server::run(cfg).await
 }
 
 async fn doctor() -> Result<()> {
