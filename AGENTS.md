@@ -148,38 +148,66 @@ Key things to leave behind from the spike:
 
 ## Rules for this build
 
-1. `urchin-core` must have zero I/O — only types, serialization, and pure logic
+1. `urchin-core` has zero I/O — only types, serialization, and pure logic
 2. All async runtime is tokio
 3. Single binary output: `cargo build` → `target/debug/urchin`
-4. Config comes from `~/.config/urchin/config.toml` + env var overrides
-5. Errors use `anyhow` for the binary, `thiserror` for library crates (add when needed)
-6. No panics in library code — return `Result<_>`
-7. The MCP server must be stdio-based (not HTTP) — this is how Claude Code and VS Code wire it
-8. Keep it simple. Do not over-engineer before the basics work.
+4. Config loads from `~/.config/urchin/config.toml` then env var overrides
+5. Library crates return `Result<_>` — no panics
+6. The MCP server is stdio-based (not HTTP) — that's how Claude Code and VS Code wire it
+7. Keep it simple. Do not build ahead of what's tested.
+
+## Git rules
+
+- Commit after each logical unit of work — not at the end of a session
+- One thing per commit. If you added a feature and fixed a bug, that is two commits.
+- Commit messages: lowercase, short, plain. Examples:
+  - `urchin-intake: POST /ingest and GET /health`
+  - `urchin-core: dedupe by content hash`
+  - `fix: journal read skips malformed lines`
+- No AI-generated commit messages. No "feat:", "chore:", "refactor:" prefixes unless it genuinely needs it.
+- Push after every commit or small group of related commits.
+
+## Writing rules
+
+- No jargon in comments, docs, or AGENTS.md without a plain explanation next to it
+- No filler phrases: "robust", "seamlessly", "powerful", "comprehensive", "cutting-edge"
+- Comments explain why, not what. If the code is obvious, no comment needed.
+- README and docs are written like a person wrote them, not a model generating output.
 
 ---
 
-## Where to start
+## Current state (updated)
 
-Phase 1 — get `urchin doctor` and `urchin ingest` working end-to-end:
-1. Flesh out `urchin-core`: Event, Journal, Config, Identity (mostly done in scaffold)
-2. Wire `urchin-cli` ingest command to actually write to the journal
-3. Wire `urchin-cli` doctor to show real status (journal size, config paths)
-4. Add basic tests for Event serialization and Journal append/read
+Phase 1 is done. `urchin doctor` and `urchin ingest` work against the real journal.
+
+**What's built in `urchin-core`:**
+- `event.rs` — Event struct with clean serde (no nulls emitted, unknown fields silently dropped so Node.js spike events load fine)
+- `journal.rs` — append(), read_all(), stats() (event count, file size, last event — without loading every event into memory)
+- `config.rs` — defaults → `~/.config/urchin/config.toml` → env var overrides
+- `identity.rs` — reads `$USER` and `/etc/hostname`
+
+**What's built in `urchin-cli`:**
+- `doctor` — shows identity, config path, vault, port, journal event count, size, last event
+- `ingest` — writes to journal with actor/identity populated, `--kind` flag (defaults to conversation), `--title`, `--tags`
+
+**Tests:** 7 passing in `urchin-core` — event roundtrip, no-null output, unknown-field tolerance, journal append/read/stats
+
+---
+
+## Where to go next
 
 Phase 2 — HTTP intake:
-5. Implement `urchin-intake` server with POST /ingest and GET /health
-6. Wire intake into `urchin serve`
+- Implement `urchin-intake` crate: axum server, `POST /ingest`, `GET /health`
+- `POST /ingest` accepts the same JSON as the Event struct, writes to journal
+- `GET /health` returns `{"status":"ok","events":<count>}`
+- Wire into `urchin serve` — starts the intake server and keeps it running
+- Port is `cfg.intake_port` (default 18799)
+- Test: `curl -X POST localhost:18799/ingest -d '{"source":"test","content":"hello"}'`
 
 Phase 3 — MCP server:
-7. Implement `urchin-mcp` with all 5 tools over stdio
-8. Wire into `urchin mcp`
+- Implement `urchin-mcp` over stdio with 5 tools (see tool table above)
+- Wire into `urchin mcp`
 
-Phase 4 — collectors:
-9. Implement shell and git collectors first (simplest)
-10. Then claude, copilot, gemini
+Phase 4 — collectors (shell and git first, then claude/copilot/gemini)
 
-Phase 5 — vault projection:
-11. Read the vault contract from `_urchin/README.md`
-12. Implement marker block writer
-13. Test against `~/brain/_urchin/test-surfaces/`
+Phase 5 — vault projection (read `~/brain/_urchin/README.md` contract, write only inside marker blocks)
