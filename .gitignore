@@ -1,2 +1,5 @@
 /target
 Cargo.lock
+
+# Local agent context — keep out of public repo
+AGENTS.md

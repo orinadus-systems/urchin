@@ -195,10 +195,6 @@ Request body for `/ingest`:
 
 ---
 
-## Related
-
-- [`AGENTS.md`](./AGENTS.md) — architecture, phase plan, and rules for contributors
-
 <div align="center">
 <sub>Local-first. Additive. Not a trap.</sub>
 </div>
