@@ -23,12 +23,12 @@ Claude, Copilot, Gemini, Codex, VS Code, the shell — each one has its own memo
 
 ```mermaid
 flowchart LR
-    C1[Claude]:::tool --> COL
-    C2[Copilot]:::tool --> COL
-    C3[Gemini]:::tool --> COL
+    C1[Claude]:::pending --> COL
+    C2[Copilot]:::pending --> COL
+    C3[Gemini]:::pending --> COL
     C4[Shell / Git]:::tool --> COL
 
-    COL[Collectors<br/><i>passive readers</i>]:::pending -->|append| J
+    COL[Collectors<br/><i>passive readers</i>]:::live -->|append| J
 
     HTTP[POST /ingest]:::live -->|append| J
     MCP[MCP tools/call]:::live -->|append| J
@@ -48,7 +48,7 @@ flowchart LR
     classDef core fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe
 ```
 
-Solid boxes are live. Dashed boxes are Phase 4 (not built yet).
+Solid green boxes are live. Dashed amber boxes are not wired yet (claude/copilot/gemini collectors).
 
 ---
 
@@ -63,8 +63,8 @@ Solid boxes are live. Dashed boxes are Phase 4 (not built yet).
 | CLI: `ingest` | ✅ shipped | `--kind`, `--title`, `--tags`, `--workspace`, `--source` |
 | HTTP intake | ✅ shipped | `POST /ingest`, `GET /health`, bound to `127.0.0.1` only |
 | MCP server (stdio) | ✅ shipped | JSON-RPC 2.0 with 5 tools — status, ingest, recent_activity, project_context, search |
-| Shell collector | 🔲 next | Tail `~/.bash_history` and append new entries |
-| Git collector | 🔲 next | Walk known repo roots, ingest commits since last checkpoint |
+| Shell collector | ✅ shipped | Tails `~/.bash_history` with byte-offset checkpoint, strips HISTTIMEFORMAT markers |
+| Git collector | ✅ shipped | Per-repo SHA checkpoint, ingests commits since last seen, silent first run to avoid backfill blast |
 | Claude collector | 🔲 planned | Read `~/.claude/history.jsonl` and project transcripts |
 | Copilot collector | 🔲 planned | Read `~/.copilot/session-state/` |
 | Gemini collector | 🔲 planned | Read `~/.gemini/tmp/*/chats/*.json` |
@@ -73,7 +73,7 @@ Solid boxes are live. Dashed boxes are Phase 4 (not built yet).
 | Vault projection | 🔲 planned | Marker block writes inside `<!-- URCHIN:*:START/END -->`, `_urchin/` namespace only |
 | Remote sync bridge | 🔲 planned | Pull/sync the journal across machines (WSL / VPS) |
 
-**19 tests passing** across `urchin-core` (7), `urchin-intake` (2), and `urchin-mcp` (10).
+**28 tests passing** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (10), and `urchin-collectors` (9).
 
 ---
 
@@ -134,7 +134,7 @@ crates/
   urchin-core        types only: Event, Journal, Identity, Config  (zero I/O)
   urchin-intake      axum HTTP server: POST /ingest, GET /health
   urchin-mcp         MCP over stdio: 5 tools, JSON-RPC 2.0
-  urchin-collectors  passive readers for claude/copilot/gemini/shell/git  [stubs]
+  urchin-collectors  shell + git live; claude/copilot/gemini/agent_bridge stubbed
   urchin-vault       Obsidian vault projection                            [stubs]
   urchin-cli         single binary: serve | mcp | doctor | ingest
 ```
@@ -202,6 +202,9 @@ Request body for `/ingest`:
 | `urchin ingest` | Write a single event from the command line |
 | `urchin serve` | Start the HTTP intake daemon on `127.0.0.1:<port>` |
 | `urchin mcp` | Run the MCP server over stdio (JSON-RPC 2.0) |
+| `urchin collect shell` | Run the shell collector once |
+| `urchin collect git --repo <path>` | Run the git collector for one or more repos |
+| `urchin collect all` | Run every collector with a default source |
 
 Build once, run from `target/debug/urchin` or via `cargo run -p urchin-cli -- <command>`.
 
@@ -227,6 +230,7 @@ remote_host  = "vps.example.com"
 | `URCHIN_INTAKE_PORT` | `intake_port` | `18799` |
 | `URCHIN_ACCOUNT` | identity `account` | `$USER` |
 | `URCHIN_DEVICE` | identity `device` | hostname |
+| `URCHIN_REPO_ROOTS` | git repos for `collect git` | _(none)_ — colon-separated paths |
 | `URCHIN_LOG` | tracing filter | `urchin=info` |
 
 ---
