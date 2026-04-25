@@ -12,7 +12,7 @@
 
 ---
 
-Claude, Copilot, Gemini, Codex, VS Code, the shell — each one has its own memory, none of them share. Urchin runs as a local daemon, collects activity from every tool into one append-only journal, and serves that journal back through MCP and HTTP so any tool can read what the others did.
+Claude, Copilot, Gemini, Codex, VS Code, the shell... each one has its own memory, none of them share. Urchin runs as a local daemon, collects activity from every tool into one append-only journal, and serves that journal back through MCP and HTTP so any tool can read what the others did.
 
 > Urchin does not own your tools. It connects them.
 > It is additive. Nobody loses anything. Every tool you already use gets better.
