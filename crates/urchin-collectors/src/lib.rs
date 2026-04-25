@@ -2,6 +2,8 @@
 /// Each collector reads from a tool's native output and produces Events.
 /// Collectors are passive — they read, they never write to source tools.
 
+pub mod state;
+
 pub mod claude;
 pub mod copilot;
 pub mod gemini;

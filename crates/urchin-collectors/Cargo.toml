@@ -12,3 +12,7 @@ anyhow      = { workspace = true }
 tracing     = { workspace = true }
 notify      = { workspace = true }
 dirs        = { workspace = true }
+chrono      = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
