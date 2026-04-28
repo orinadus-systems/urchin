@@ -9,12 +9,11 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use urchin_core::{
     config::Config,
-    event::{Actor, Event, EventKind},
+    event::Event,
     identity::Identity,
     journal::Journal,
 };
@@ -66,42 +65,13 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-#[derive(Deserialize)]
-pub struct IngestRequest {
-    pub content: String,
-    #[serde(default)]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub workspace: Option<String>,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub session: Option<String>,
-}
-
+/// Accept a fully-formed Event from the SDK or any caller.
+/// The event's id and timestamp are preserved exactly — the SDK owns creation identity.
 async fn ingest(
     State(state): State<AppState>,
-    Json(req): Json<IngestRequest>,
+    Json(event): Json<Event>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let kind = parse_kind(req.kind.as_deref().unwrap_or("conversation"));
-    let mut event = Event::new(
-        req.source.unwrap_or_else(|| "http".into()),
-        kind,
-        req.content,
-    );
-    event.workspace = req.workspace;
-    event.title     = req.title;
-    event.tags      = req.tags;
-    event.session   = req.session;
-    event.actor = Some(Actor {
-        account:   Some(state.identity.account.clone()),
-        device:    Some(state.identity.device.clone()),
-        workspace: event.workspace.clone(),
-    });
+    let id = event.id;
 
     if let Err(e) = state.journal.append(&event) {
         return Err((
@@ -111,20 +81,9 @@ async fn ingest(
     }
 
     Ok(Json(json!({
-        "id":     event.id,
+        "id":     id,
         "status": "ok",
     })))
-}
-
-fn parse_kind(s: &str) -> EventKind {
-    match s {
-        "agent"        => EventKind::Agent,
-        "command"      => EventKind::Command,
-        "commit"       => EventKind::Commit,
-        "file"         => EventKind::File,
-        "conversation" => EventKind::Conversation,
-        other          => EventKind::Other(other.to_string()),
-    }
 }
 
 #[cfg(test)]
@@ -151,37 +110,41 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
+    // Minimal valid Event JSON — id and timestamp are required by the Event struct.
+    const EVENT_JSON: &str = r#"{
+        "id": "56816532-adb7-4000-8a0f-1dda8408aab5",
+        "timestamp": "2026-04-28T12:00:00Z",
+        "source": "test",
+        "kind": "conversation",
+        "content": "hello from test"
+    }"#;
+
     #[tokio::test]
     async fn health_reflects_ingested_events() {
         let tmp = NamedTempFile::new().unwrap();
         let state = test_state(tmp.path().to_path_buf());
         let app = router(state);
 
-        // health before
         let resp = app.clone().oneshot(
             Request::builder().uri("/health").body(Body::empty()).unwrap()
         ).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let before = json_body(resp).await;
-        assert_eq!(before["status"], "ok");
         assert_eq!(before["events"], 0);
 
-        // POST /ingest
-        let body = r#"{"source":"test","content":"hello from test","kind":"conversation"}"#;
         let resp = app.clone().oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/ingest")
                 .header("content-type", "application/json")
-                .body(Body::from(body))
+                .body(Body::from(EVENT_JSON))
                 .unwrap()
         ).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         let posted = json_body(resp).await;
         assert_eq!(posted["status"], "ok");
-        assert!(posted["id"].is_string());
+        assert_eq!(posted["id"], "56816532-adb7-4000-8a0f-1dda8408aab5");
 
-        // health after
         let resp = app.oneshot(
             Request::builder().uri("/health").body(Body::empty()).unwrap()
         ).await.unwrap();
@@ -190,12 +153,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingest_rejects_missing_content() {
+    async fn ingest_rejects_missing_required_fields() {
         let tmp = NamedTempFile::new().unwrap();
         let state = test_state(tmp.path().to_path_buf());
         let app = router(state);
 
-        let body = r#"{"source":"test"}"#;
+        // Missing id, timestamp — not a valid Event
+        let body = r#"{"source":"test","content":"oops"}"#;
         let resp = app.oneshot(
             Request::builder()
                 .method("POST")

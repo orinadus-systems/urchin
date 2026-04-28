@@ -5,3 +5,5 @@ pub mod event;
 pub mod identity;
 pub mod journal;
 pub mod config;
+pub mod governance;
+pub mod query;

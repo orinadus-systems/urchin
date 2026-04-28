@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
 use serde_json::{json, Value};
 
 use urchin_core::{
@@ -12,6 +11,7 @@ use urchin_core::{
     event::{Actor, Event, EventKind},
     identity::Identity,
     journal::Journal,
+    query,
 };
 
 pub struct ToolContext {
@@ -42,7 +42,7 @@ pub fn tool_list() -> Value {
                     "workspace": { "type": "string",  "description": "Absolute path to the workspace/repo this event belongs to." },
                     "source":    { "type": "string",  "description": "Origin tool: claude, copilot, cli, agent, etc. Defaults to 'mcp'." },
                     "title":     { "type": "string",  "description": "Optional short title." },
-                    "kind":      { "type": "string",  "description": "conversation | agent | command | commit | file. Defaults to conversation." },
+                    "kind":      { "type": "string",  "description": "conversation | agent | command | commit | file | decision. Defaults to conversation." },
                     "tags":      { "type": "array",   "items": { "type": "string" } },
                     "session":   { "type": "string",  "description": "Optional session identifier." }
                 },
@@ -151,93 +151,38 @@ fn ingest(args: &Value, ctx: &ToolContext) -> Result<String> {
 
     ctx.journal.append(&event)?;
 
-    let label = title.unwrap_or_else(|| truncate(&content, 60));
+    let label = title.unwrap_or_else(|| truncate_label(&content, 60));
     Ok(format!("Recorded [{}]: {}", source, label))
 }
 
 fn recent_activity(args: &Value, ctx: &ToolContext) -> Result<String> {
-    let hours       = opt_f64(args, "hours").unwrap_or(24.0);
-    let source      = opt_str(args, "source");
-    let limit       = opt_usize(args, "limit").unwrap_or(20);
-    let cutoff      = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
+    let hours  = opt_f64(args, "hours").unwrap_or(24.0);
+    let source = opt_str(args, "source");
+    let limit  = opt_usize(args, "limit").unwrap_or(20);
 
-    let events = ctx.journal.read_all()?;
-    let filtered: Vec<&Event> = events
-        .iter()
-        .filter(|e| e.timestamp >= cutoff)
-        .filter(|e| source.as_deref().map(|s| e.source == s).unwrap_or(true))
-        .collect();
-
-    Ok(format_events(filtered, limit))
+    let events   = ctx.journal.read_all()?;
+    let filtered = query::recent(&events, hours, source.as_deref(), limit);
+    Ok(query::format_events(&filtered))
 }
 
 fn project_context(args: &Value, ctx: &ToolContext) -> Result<String> {
-    let project = required_str(args, "project")?.to_lowercase();
+    let project = required_str(args, "project")?;
     let hours   = opt_f64(args, "hours").unwrap_or(168.0);
     let limit   = opt_usize(args, "limit").unwrap_or(30);
-    let cutoff  = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
 
-    let events = ctx.journal.read_all()?;
-    let filtered: Vec<&Event> = events
-        .iter()
-        .filter(|e| e.timestamp >= cutoff)
-        .filter(|e| {
-            e.content.to_lowercase().contains(&project)
-                || e.tags.iter().any(|t| t.to_lowercase().contains(&project))
-                || e.workspace.as_deref().map(|w| w.to_lowercase().contains(&project)).unwrap_or(false)
-        })
-        .collect();
-
-    Ok(format_events(filtered, limit))
+    let events   = ctx.journal.read_all()?;
+    let filtered = query::project_context(&events, &project, hours, limit);
+    Ok(query::format_events(&filtered))
 }
 
 fn search(args: &Value, ctx: &ToolContext) -> Result<String> {
-    let query  = required_str(args, "query")?.to_lowercase();
-    let hours  = opt_f64(args, "hours").unwrap_or(168.0);
-    let limit  = opt_usize(args, "limit").unwrap_or(20);
-    let cutoff = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
+    let query_str = required_str(args, "query")?;
+    let hours     = opt_f64(args, "hours").unwrap_or(168.0);
+    let limit     = opt_usize(args, "limit").unwrap_or(20);
 
-    let events = ctx.journal.read_all()?;
-    let filtered: Vec<&Event> = events
-        .iter()
-        .filter(|e| e.timestamp >= cutoff)
-        .filter(|e| e.content.to_lowercase().contains(&query))
-        .collect();
-
-    Ok(format_events(filtered, limit))
-}
-
-fn format_events(events: Vec<&Event>, limit: usize) -> String {
-    // Newest first
-    let mut sorted: Vec<&Event> = events;
-    sorted.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    let take: Vec<&&Event> = sorted.iter().take(limit).collect();
-
-    if take.is_empty() {
-        return "(no matching events)".to_string();
-    }
-
-    take.iter()
-        .map(|e| format_event_line(e))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn format_event_line(e: &Event) -> String {
-    let ts = e.timestamp.format("%Y-%m-%dT%H:%M:%SZ");
-    let content = truncate(&e.content, 120);
-    format!("[{}] {} — {}", ts, e.source, content)
-}
-
-fn truncate(s: &str, n: usize) -> String {
-    let collapsed: String = s.chars().map(|c| if c == '\n' { ' ' } else { c }).collect();
-    if collapsed.chars().count() <= n {
-        collapsed
-    } else {
-        let mut out: String = collapsed.chars().take(n).collect();
-        out.push('…');
-        out
-    }
+    let events   = ctx.journal.read_all()?;
+    let filtered = query::search_content(&events, &query_str, hours, limit);
+    Ok(query::format_events(&filtered))
 }
 
 fn parse_kind(s: &str) -> EventKind {
@@ -246,8 +191,20 @@ fn parse_kind(s: &str) -> EventKind {
         "command"      => EventKind::Command,
         "commit"       => EventKind::Commit,
         "file"         => EventKind::File,
+        "decision"     => EventKind::Decision,
         "conversation" => EventKind::Conversation,
         other          => EventKind::Other(other.to_string()),
+    }
+}
+
+fn truncate_label(s: &str, n: usize) -> String {
+    let collapsed: String = s.chars().map(|c| if c == '\n' { ' ' } else { c }).collect();
+    if collapsed.chars().count() <= n {
+        collapsed
+    } else {
+        let mut out: String = collapsed.chars().take(n).collect();
+        out.push('…');
+        out
     }
 }
 
@@ -280,10 +237,6 @@ fn opt_str_array(args: &Value, key: &str) -> Vec<String> {
         })
         .unwrap_or_default()
 }
-
-// Keep an internal ref to DateTime so unused-import warnings don't happen if chrono shape changes.
-#[allow(dead_code)]
-fn _touch_datetime(_t: DateTime<Utc>) {}
 
 #[cfg(test)]
 mod tests {

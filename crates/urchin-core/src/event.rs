@@ -12,6 +12,8 @@ pub struct Event {
     pub kind: EventKind,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub brain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
@@ -31,6 +33,7 @@ pub enum EventKind {
     Command,
     Commit,
     File,
+    Decision,
     Other(String),
 }
 
@@ -53,6 +56,7 @@ impl Event {
             source: source.into(),
             kind,
             content: content.into(),
+            brain: None,
             workspace: None,
             session: None,
             title: None,
