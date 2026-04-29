@@ -13,6 +13,7 @@ urchin-intake     = { path = "../urchin-intake" }
 urchin-mcp        = { path = "../urchin-mcp" }
 urchin-collectors = { path = "../urchin-collectors" }
 urchin-vault      = { path = "../urchin-vault" }
+urchin-sdk        = { path = "../urchin-sdk" }
 tokio             = { workspace = true }
 clap              = { workspace = true }
 anyhow            = { workspace = true }

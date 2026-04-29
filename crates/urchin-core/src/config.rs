@@ -8,6 +8,8 @@ pub struct Config {
     pub cache_path: PathBuf,
     pub intake_port: u16,
     pub remote_host: Option<String>,
+    pub cloud_url: Option<String>,
+    pub cloud_token: Option<String>,
 }
 
 /// The on-disk TOML representation — all fields optional so partial files work.
@@ -18,6 +20,8 @@ struct FileConfig {
     cache_path: Option<PathBuf>,
     intake_port: Option<u16>,
     remote_host: Option<String>,
+    cloud_url: Option<String>,
+    cloud_token: Option<String>,
 }
 
 impl Default for Config {
@@ -34,6 +38,8 @@ impl Default for Config {
             cache_path: data_dir.join("event-cache.jsonl"),
             intake_port: 18799,
             remote_host: None,
+            cloud_url: None,
+            cloud_token: None,
         }
     }
 }
@@ -59,6 +65,8 @@ impl Config {
                     if let Some(v) = file_cfg.cache_path    { cfg.cache_path    = v; }
                     if let Some(v) = file_cfg.intake_port   { cfg.intake_port   = v; }
                     if let Some(v) = file_cfg.remote_host   { cfg.remote_host   = Some(v); }
+                    if let Some(v) = file_cfg.cloud_url     { cfg.cloud_url     = Some(v); }
+                    if let Some(v) = file_cfg.cloud_token   { cfg.cloud_token   = Some(v); }
                 }
             }
         }
@@ -69,7 +77,34 @@ impl Config {
         if let Ok(v) = std::env::var("URCHIN_INTAKE_PORT")  {
             cfg.intake_port = v.parse().unwrap_or(18799);
         }
+        if let Ok(v) = std::env::var("URCHIN_CLOUD_URL")   { cfg.cloud_url   = Some(v); }
+        if let Ok(v) = std::env::var("URCHIN_CLOUD_TOKEN") { cfg.cloud_token = Some(v); }
 
         cfg
+    }
+
+    /// Set a single key in the config file (creates the file if missing).
+    /// Keys: vault_root, journal_path, cache_path, intake_port, remote_host, cloud_url, cloud_token
+    pub fn set_field(key: &str, value: &str) -> anyhow::Result<()> {
+        use anyhow::Context;
+        let path = Self::config_path();
+        if let Some(p) = path.parent() {
+            std::fs::create_dir_all(p)?;
+        }
+        let mut table: toml::value::Table = if path.exists() {
+            toml::from_str(&std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?)
+                .with_context(|| "parsing config.toml")?
+        } else {
+            toml::value::Table::new()
+        };
+        if value.is_empty() {
+            table.remove(key);
+        } else {
+            table.insert(key.to_string(), toml::Value::String(value.to_string()));
+        }
+        std::fs::write(&path, toml::to_string(&table)?)
+            .with_context(|| format!("writing {}", path.display()))?;
+        Ok(())
     }
 }

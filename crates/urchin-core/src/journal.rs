@@ -1,7 +1,7 @@
 /// Append-only journal. Events are written once, never mutated.
 /// The journal file at ~/.local/share/urchin/journal/events.jsonl is the source of truth.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use anyhow::Result;
 use crate::event::Event;
@@ -63,6 +63,29 @@ impl Journal {
             .filter_map(|l| serde_json::from_str(&l).ok())
             .collect();
         Ok(events)
+    }
+
+    /// Read events starting from a byte offset in the file.
+    /// Returns (events, new_offset) where new_offset is the file position after reading.
+    /// Caller should persist new_offset so the next call skips already-read events.
+    pub fn read_from_byte_offset(&self, offset: u64) -> Result<(Vec<Event>, u64)> {
+        if !self.path.exists() {
+            return Ok((vec![], 0));
+        }
+        let mut file = std::fs::File::open(&self.path)?;
+        let file_len = file.seek(SeekFrom::End(0))?;
+        if offset >= file_len {
+            return Ok((vec![], file_len));
+        }
+        file.seek(SeekFrom::Start(offset))?;
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+        let events = buf
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        Ok((events, file_len))
     }
 
     /// Fast stats without fully deserializing every event.

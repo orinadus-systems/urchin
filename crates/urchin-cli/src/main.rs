@@ -37,6 +37,22 @@ enum Commands {
         #[command(subcommand)]
         which: CollectKind,
     },
+    /// Manage configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Set a configuration key (e.g. cloud_url, cloud_token)
+    Set {
+        key: String,
+        value: String,
+    },
+    /// Print current configuration
+    Show,
 }
 
 #[derive(Subcommand)]
@@ -74,10 +90,12 @@ async fn main() -> Result<()> {
             ingest(content, source, workspace, title, tags, kind)
         }
         Commands::Collect { which } => collect(which),
+        Commands::Config { action } => config_cmd(action),
     }
 }
 
 async fn serve() -> Result<()> {
+    use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::watch;
     use tokio::task::spawn_blocking;
@@ -89,6 +107,14 @@ async fn serve() -> Result<()> {
     let identity = Arc::new(Identity::resolve());
     let jp       = cfg.journal_path.clone();
 
+    // Cloud shuttle config — cloned before cfg is borrowed by intake server
+    let cloud_url   = cfg.cloud_url.clone();
+    let cloud_token = cfg.cloud_token.clone();
+    let shuttle_offset_path = cfg.cache_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("cloud-sync.offset");
+
     // ── Shutdown plumbing ────────────────────────────────────────────────────
     let (stop_tx, stop_rx) = watch::channel(false);
 
@@ -99,7 +125,7 @@ async fn serve() -> Result<()> {
         let _ = tx_ctrlc.send(true);
     });
 
-    // ── Background collector tick loop ───────────────────────────────────────
+    // ── Background collector + shuttle tick loop ─────────────────────────────
     let tick_id = Arc::clone(&identity);
     let tick_jp = jp.clone();
     let mut tick_stop = stop_rx.clone();
@@ -134,7 +160,7 @@ async fn serve() -> Result<()> {
                 if let Ok(roots) = std::env::var("URCHIN_REPO_ROOTS") {
                     for root in roots.split(':').filter(|s| !s.is_empty()) {
                         let opts = git_col::GitOpts::defaults_for(
-                            std::path::PathBuf::from(root)
+                            PathBuf::from(root)
                         );
                         match git_col::collect_repo(&journal, &id, &opts) {
                             Ok(k)  => n += k,
@@ -153,6 +179,44 @@ async fn serve() -> Result<()> {
             }).await.unwrap_or(0);
 
             println!("[DAEMON] Tick complete: {} total events ingested.", total);
+
+            // ── Cloud Shuttle ────────────────────────────────────────────────
+            if let Some(ref url) = cloud_url {
+                let jp2 = tick_jp.clone();
+                let offset_path = shuttle_offset_path.clone();
+
+                let read_result = spawn_blocking(move || {
+                    let offset = read_offset(&offset_path);
+                    let journal = Journal::new(jp2);
+                    journal.read_from_byte_offset(offset)
+                        .map(|(events, new_off)| (events, new_off, offset_path))
+                }).await;
+
+                match read_result {
+                    Ok(Ok((events, new_offset, offset_path))) if !events.is_empty() => {
+                        let mut client = urchin_sdk::UrchinClient::new(url.as_str());
+                        if let Some(ref t) = cloud_token {
+                            client = client.with_token(t.as_str());
+                        }
+                        let mut shuttled = 0usize;
+                        for event in &events {
+                            match client.ingest(event).await {
+                                Ok(_)  => shuttled += 1,
+                                Err(e) => {
+                                    tracing::warn!("[DAEMON] shuttle ingest failed: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                        if shuttled == events.len() {
+                            save_offset(&offset_path, new_offset);
+                        }
+                        println!("[DAEMON] Shuttled {} events to Cloud Hub.", shuttled);
+                    }
+                    Ok(Err(e)) => tracing::warn!("[DAEMON] shuttle read: {}", e),
+                    _ => {}
+                }
+            }
         }
 
         tracing::info!("[DAEMON] Collector loop stopped.");
@@ -164,6 +228,20 @@ async fn serve() -> Result<()> {
         &cfg,
         async move { intake_stop.changed().await.ok(); },
     ).await
+}
+
+fn read_offset(path: &std::path::Path) -> u64 {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+fn save_offset(path: &std::path::Path, offset: u64) {
+    if let Some(p) = path.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    let _ = std::fs::write(path, offset.to_string());
 }
 
 async fn mcp() -> Result<()> {
@@ -321,6 +399,27 @@ fn collect(which: CollectKind) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn config_cmd(action: ConfigAction) -> Result<()> {
+    use urchin_core::config::Config;
+    match action {
+        ConfigAction::Set { key, value } => {
+            Config::set_field(&key, &value)?;
+            println!("set {} = {}", key, value);
+        }
+        ConfigAction::Show => {
+            let cfg = Config::load();
+            println!("vault_root:    {}", cfg.vault_root.display());
+            println!("journal_path:  {}", cfg.journal_path.display());
+            println!("cache_path:    {}", cfg.cache_path.display());
+            println!("intake_port:   {}", cfg.intake_port);
+            println!("remote_host:   {}", cfg.remote_host.as_deref().unwrap_or("-"));
+            println!("cloud_url:     {}", cfg.cloud_url.as_deref().unwrap_or("-"));
+            println!("cloud_token:   {}", cfg.cloud_token.as_deref().map(|_| "<set>").unwrap_or("-"));
+        }
+    }
     Ok(())
 }
 
