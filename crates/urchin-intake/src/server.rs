@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -50,6 +51,22 @@ pub async fn serve(cfg: &Config) -> Result<()> {
     let listener = TcpListener::bind(&addr).await?;
     tracing::info!("intake listening on {}", addr);
     axum::serve(listener, router(state)).await?;
+    Ok(())
+}
+
+/// Start the intake server with an external shutdown signal.
+/// The server stops cleanly once `shutdown` resolves.
+pub async fn serve_with_shutdown(
+    cfg: &Config,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> Result<()> {
+    let state = AppState::from_config(cfg);
+    let addr = format!("127.0.0.1:{}", cfg.intake_port);
+    let listener = TcpListener::bind(&addr).await?;
+    tracing::info!("intake listening on {}", addr);
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(shutdown)
+        .await?;
     Ok(())
 }
 

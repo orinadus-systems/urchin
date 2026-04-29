@@ -49,7 +49,9 @@ enum CollectKind {
         #[arg(short, long)]
         repo: Vec<String>,
     },
-    /// Run every collector that has a default path (currently: shell, git via URCHIN_REPO_ROOTS)
+    /// Ingest prompts from ~/.claude/history.jsonl
+    Claude,
+    /// Run every collector that has a default path (shell, git via URCHIN_REPO_ROOTS, claude)
     All,
 }
 
@@ -76,8 +78,92 @@ async fn main() -> Result<()> {
 }
 
 async fn serve() -> Result<()> {
-    let cfg = urchin_core::config::Config::load();
-    urchin_intake::server::serve(&cfg).await
+    use std::sync::Arc;
+    use tokio::sync::watch;
+    use tokio::task::spawn_blocking;
+    use tokio::time::{interval, Duration};
+    use urchin_collectors::{claude as claude_col, git as git_col, shell as shell_col};
+    use urchin_core::{config::Config, identity::Identity, journal::Journal};
+
+    let cfg      = Config::load();
+    let identity = Arc::new(Identity::resolve());
+    let jp       = cfg.journal_path.clone();
+
+    // ── Shutdown plumbing ────────────────────────────────────────────────────
+    let (stop_tx, stop_rx) = watch::channel(false);
+
+    let tx_ctrlc = stop_tx.clone();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.ok();
+        tracing::info!("[DAEMON] Ctrl+C received, shutting down.");
+        let _ = tx_ctrlc.send(true);
+    });
+
+    // ── Background collector tick loop ───────────────────────────────────────
+    let tick_id = Arc::clone(&identity);
+    let tick_jp = jp.clone();
+    let mut tick_stop = stop_rx.clone();
+
+    tokio::spawn(async move {
+        let mut ticker = interval(Duration::from_secs(60));
+        ticker.tick().await; // skip the immediate first fire
+
+        loop {
+            tokio::select! {
+                _ = tick_stop.changed() => {
+                    if *tick_stop.borrow() { break; }
+                }
+                _ = ticker.tick() => {}
+            }
+
+            println!("[DAEMON] Tick started: collecting across all channels...");
+
+            let id = Arc::clone(&tick_id);
+            let jp = tick_jp.clone();
+
+            let total = spawn_blocking(move || -> usize {
+                let journal = Journal::new(jp);
+                let mut n = 0usize;
+
+                let opts = shell_col::ShellOpts::defaults();
+                match shell_col::collect(&journal, &id, &opts) {
+                    Ok(k)  => n += k,
+                    Err(e) => tracing::warn!("[DAEMON] shell: {}", e),
+                }
+
+                if let Ok(roots) = std::env::var("URCHIN_REPO_ROOTS") {
+                    for root in roots.split(':').filter(|s| !s.is_empty()) {
+                        let opts = git_col::GitOpts::defaults_for(
+                            std::path::PathBuf::from(root)
+                        );
+                        match git_col::collect_repo(&journal, &id, &opts) {
+                            Ok(k)  => n += k,
+                            Err(e) => tracing::warn!("[DAEMON] git: {}", e),
+                        }
+                    }
+                }
+
+                let opts = claude_col::ClaudeOpts::defaults();
+                match claude_col::collect(&journal, &id, &opts) {
+                    Ok(k)  => n += k,
+                    Err(e) => tracing::warn!("[DAEMON] claude: {}", e),
+                }
+
+                n
+            }).await.unwrap_or(0);
+
+            println!("[DAEMON] Tick complete: {} total events ingested.", total);
+        }
+
+        tracing::info!("[DAEMON] Collector loop stopped.");
+    });
+
+    // ── Intake server with graceful shutdown ─────────────────────────────────
+    let mut intake_stop = stop_rx;
+    urchin_intake::server::serve_with_shutdown(
+        &cfg,
+        async move { intake_stop.changed().await.ok(); },
+    ).await
 }
 
 async fn mcp() -> Result<()> {
@@ -177,7 +263,7 @@ fn ingest(
 }
 
 fn collect(which: CollectKind) -> Result<()> {
-    use urchin_collectors::{git as git_col, shell as shell_col};
+    use urchin_collectors::{claude as claude_col, git as git_col, shell as shell_col};
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
     let cfg = Config::load();
@@ -209,6 +295,11 @@ fn collect(which: CollectKind) -> Result<()> {
             }
             println!("git total: {}", total);
         }
+        CollectKind::Claude => {
+            let opts = claude_col::ClaudeOpts::defaults();
+            let n = claude_col::collect(&journal, &identity, &opts)?;
+            println!("Collected {} new events from Claude CLI history.", n);
+        }
         CollectKind::All => {
             let opts = shell_col::ShellOpts::defaults();
             match shell_col::collect(&journal, &identity, &opts) {
@@ -221,6 +312,11 @@ fn collect(which: CollectKind) -> Result<()> {
                     Ok(n)  => println!("git {}: {} new commits", r.display(), n),
                     Err(e) => eprintln!("git {} skipped: {}", r.display(), e),
                 }
+            }
+            let opts = claude_col::ClaudeOpts::defaults();
+            match claude_col::collect(&journal, &identity, &opts) {
+                Ok(n)  => println!("claude: {} new events", n),
+                Err(e) => eprintln!("claude skipped: {}", e),
             }
         }
     }
