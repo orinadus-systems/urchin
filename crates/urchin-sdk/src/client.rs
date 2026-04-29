@@ -1,6 +1,22 @@
 use anyhow::{Context, Result};
 use urchin_core::event::Event;
 
+/// Structured HTTP error returned by the remote end.
+/// Callers can downcast an `anyhow::Error` to this type to inspect status + body.
+#[derive(Debug)]
+pub struct HttpError {
+    pub status: u16,
+    pub body: serde_json::Value,
+}
+
+impl std::fmt::Display for HttpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HTTP {} — {}", self.status, self.body)
+    }
+}
+
+impl std::error::Error for HttpError {}
+
 /// HTTP client for the local Urchin daemon or a remote Cloud Hub.
 pub struct UrchinClient {
     base_url: String,
@@ -29,6 +45,7 @@ impl UrchinClient {
     }
 
     /// POST an event to /ingest. Returns the recorded event id on success.
+    /// On an HTTP error response, the error downcasts to `HttpError`.
     pub async fn ingest(&self, event: &Event) -> Result<String> {
         let url = format!("{}/ingest", self.base_url);
         let mut req = self.http.post(&url).json(event);
@@ -45,7 +62,10 @@ impl UrchinClient {
             .context("non-JSON response from daemon")?;
 
         if !status.is_success() {
-            anyhow::bail!("daemon returned {}: {:?}", status, body);
+            return Err(anyhow::Error::new(HttpError {
+                status: status.as_u16(),
+                body,
+            }));
         }
 
         Ok(body["id"].as_str().unwrap_or("ok").to_string())

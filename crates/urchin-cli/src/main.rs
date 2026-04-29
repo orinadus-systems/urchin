@@ -16,6 +16,8 @@ enum Commands {
     Mcp,
     /// Show status and health
     Doctor,
+    /// Run a one-shot cloud sync pass and exit
+    Sync,
     /// Ingest an event from the command line
     Ingest {
         #[arg(short, long)]
@@ -91,6 +93,7 @@ async fn main() -> Result<()> {
         }
         Commands::Collect { which } => collect(which),
         Commands::Config { action } => config_cmd(action),
+        Commands::Sync => sync().await,
     }
 }
 
@@ -108,12 +111,9 @@ async fn serve() -> Result<()> {
     let jp       = cfg.journal_path.clone();
 
     // Cloud shuttle config — cloned before cfg is borrowed by intake server
-    let cloud_url   = cfg.cloud_url.clone();
-    let cloud_token = cfg.cloud_token.clone();
-    let shuttle_offset_path = cfg.cache_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .join("cloud-sync.offset");
+    let cloud_url          = cfg.cloud_url.clone();
+    let cloud_token        = cfg.cloud_token.clone();
+    let shuttle_offset_path = shuttle_offset_path(&cfg);
 
     // ── Shutdown plumbing ────────────────────────────────────────────────────
     let (stop_tx, stop_rx) = watch::channel(false);
@@ -182,39 +182,17 @@ async fn serve() -> Result<()> {
 
             // ── Cloud Shuttle ────────────────────────────────────────────────
             if let Some(ref url) = cloud_url {
-                let jp2 = tick_jp.clone();
-                let offset_path = shuttle_offset_path.clone();
-
-                let read_result = spawn_blocking(move || {
-                    let offset = read_offset(&offset_path);
-                    let journal = Journal::new(jp2);
-                    journal.read_from_byte_offset(offset)
-                        .map(|(events, new_off)| (events, new_off, offset_path))
-                }).await;
-
-                match read_result {
-                    Ok(Ok((events, new_offset, offset_path))) if !events.is_empty() => {
-                        let mut client = urchin_sdk::UrchinClient::new(url.as_str());
-                        if let Some(ref t) = cloud_token {
-                            client = client.with_token(t.as_str());
-                        }
-                        let mut shuttled = 0usize;
-                        for event in &events {
-                            match client.ingest(event).await {
-                                Ok(_)  => shuttled += 1,
-                                Err(e) => {
-                                    tracing::warn!("[DAEMON] shuttle ingest failed: {}", e);
-                                    break;
-                                }
-                            }
-                        }
-                        if shuttled == events.len() {
-                            save_offset(&offset_path, new_offset);
-                        }
-                        println!("[DAEMON] Shuttled {} events to Cloud Hub.", shuttled);
+                match run_shuttle(
+                    url.as_str(),
+                    cloud_token.as_deref(),
+                    &tick_jp,
+                    &shuttle_offset_path,
+                ).await {
+                    Ok((pushed, total)) if total > 0 => {
+                        println!("[DAEMON] Shuttled {}/{} events to Cloud Hub.", pushed, total);
                     }
-                    Ok(Err(e)) => tracing::warn!("[DAEMON] shuttle read: {}", e),
-                    _ => {}
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("[DAEMON] shuttle: {}", e),
                 }
             }
         }
@@ -397,6 +375,97 @@ fn collect(which: CollectKind) -> Result<()> {
                 Err(e) => eprintln!("claude skipped: {}", e),
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Drive a single shuttle pass: read unsynced events from journal, POST to cloud hub.
+/// Returns (pushed, total). Advances the offset checkpoint only when pushed == total.
+async fn run_shuttle(
+    url: &str,
+    token: Option<&str>,
+    journal_path: &std::path::Path,
+    offset_path: &std::path::Path,
+) -> Result<(usize, usize)> {
+    use urchin_core::journal::Journal;
+
+    let jp = journal_path.to_path_buf();
+    let op = offset_path.to_path_buf();
+
+    let (events, new_offset) = tokio::task::spawn_blocking(move || {
+        let offset = read_offset(&op);
+        Journal::new(jp).read_from_byte_offset(offset)
+    }).await??;
+
+    if events.is_empty() {
+        return Ok((0, 0));
+    }
+
+    let total = events.len();
+    let mut client = urchin_sdk::UrchinClient::new(url);
+    if let Some(t) = token {
+        client = client.with_token(t);
+    }
+
+    let mut pushed = 0usize;
+    for event in &events {
+        match client.ingest(event).await {
+            Ok(_) => pushed += 1,
+            Err(e) => {
+                if let Some(http) = e.downcast_ref::<urchin_sdk::HttpError>() {
+                    eprintln!("[ERROR] Sync Rejected: {} - {}", http.status, http.body);
+                } else {
+                    eprintln!("[ERROR] {}", e);
+                }
+                break;
+            }
+        }
+    }
+
+    // Only advance the checkpoint when the full batch succeeded.
+    // On failure the same batch will be retried on the next tick.
+    if pushed == total {
+        let op = offset_path.to_path_buf();
+        tokio::task::spawn_blocking(move || save_offset(&op, new_offset)).await?;
+    }
+
+    Ok((pushed, total))
+}
+
+fn shuttle_offset_path(cfg: &urchin_core::config::Config) -> std::path::PathBuf {
+    cfg.cache_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("cloud-sync.offset")
+}
+
+async fn sync() -> Result<()> {
+    use urchin_core::config::Config;
+
+    let cfg = Config::load();
+
+    let Some(ref cloud_url) = cfg.cloud_url else {
+        eprintln!("No cloud_url configured. Run: urchin config set cloud_url <url>");
+        return Ok(());
+    };
+
+    let offset_path = shuttle_offset_path(&cfg);
+
+    let (pushed, total) = run_shuttle(
+        cloud_url.as_str(),
+        cfg.cloud_token.as_deref(),
+        &cfg.journal_path,
+        &offset_path,
+    ).await?;
+
+    if total == 0 {
+        println!("Already up to date. No events to sync.");
+    } else if pushed == total {
+        println!("Synced {} events.", pushed);
+    } else {
+        println!("Partial: {}/{} events pushed. Checkpoint not advanced — will retry on next sync.", pushed, total);
+        std::process::exit(1);
     }
 
     Ok(())
