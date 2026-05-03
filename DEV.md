@@ -58,7 +58,14 @@ curl -s http://127.0.0.1:18799/health
 
 ## Config
 
-`~/.config/urchin/config.toml` — runtime config. Cloud sync is disabled; local-only mode.
+`~/.config/urchin/config.toml` — runtime config.
+
+- `cloud_url`: `https://www.orinadus.com/api/urchin-sync` (live — platform ingest endpoint)
+- `cloud_token`: Bearer token matching `URCHIN_SYNC_TOKEN` on the platform
+- Run `urchin sync` to push buffered journal events to the cloud
+
+Cloud sync writes to `urchin_events` table in Supabase via orinadus-platform.
+The shuttle checkpoints progress so retries are safe.
 
 ## Collector runs (manual)
 
