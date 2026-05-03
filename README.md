@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
 ![Status](https://img.shields.io/badge/status-v0.2.0--dev-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
-![Tests](https://img.shields.io/badge/tests-82%20passing-success)
+![Tests](https://img.shields.io/badge/tests-92%20passing-success)
 
 </div>
 
@@ -74,7 +74,7 @@ Collectors are passive readers — they never write back to source tools. The jo
 | OpenCode collector | ✅ shipped | `~/.local/share/opencode/opencode.db`, message JOIN session, user-role filter |
 | Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file — Ollama, llama.cpp, any harness |
 
-**82 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (16), `urchin-collectors` (52), `urchin-vault` (3).
+**92 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (17), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (11).
 
 ---
 
@@ -131,9 +131,10 @@ Urchin reads from this file; it never writes to it. The collector is a no-op whe
 crates/
   urchin-core        zero I/O: Event, Journal, Identity, Config
   urchin-intake      axum: POST /ingest, GET /health (127.0.0.1:18799)
-  urchin-mcp         MCP over stdio: 8 tools, JSON-RPC 2.0
+  urchin-mcp         MCP over stdio: 9 tools, JSON-RPC 2.0
   urchin-collectors  shell, git, claude, copilot, gemini, codex, opencode, local-model — all live
   urchin-vault       vault projection: writes marker blocks into ~/brain
+  urchin-agent       ReAct skeleton: load context, synthesise, write back as Agent event
   urchin-sdk         shared types for external integrations
   urchin-cli         single binary: target/debug/urchin
 ```
@@ -168,6 +169,7 @@ Append-only JSONL. Events are never mutated. Unknown fields are ignored on read.
 | `urchin_workspace_context` | `path` | events scoped to a specific workspace CWD — call at session start |
 | `urchin_remember` | `content`, `tags?`, `workspace?` | quick-capture without required workspace |
 | `urchin_ephemeral` | `action: start\|end\|status` | burn mode — suppresses all writes until `end` |
+| `urchin_agent_reflect` | `goal`, `hours?`, `limit?` | ReAct reflection: load context, synthesise, write back to journal |
 
 Errors return `isError: true`. Queries return one line per event: `[timestamp] source — content`.
 
