@@ -151,7 +151,7 @@ async fn serve() -> Result<()> {
     use tokio::sync::watch;
     use tokio::task::spawn_blocking;
     use tokio::time::{interval, Duration};
-    use urchin_collectors::run_all;
+    use urchin_collectors::CollectorRegistry;
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
     let cfg      = Config::load();
@@ -204,7 +204,7 @@ async fn serve() -> Result<()> {
                     .map(PathBuf::from)
                     .collect();
 
-                run_all(&journal, &id, &repos)
+                CollectorRegistry::with_defaults(&repos).run_all(&journal, &id)
                     .into_iter()
                     .map(|r| match r.count {
                         Ok(n) => {
@@ -360,7 +360,7 @@ fn collect(which: CollectKind) -> Result<()> {
     use std::sync::Arc;
     use urchin_collectors::{
         claude as claude_col, copilot as copilot_col, gemini as gemini_col,
-        git as git_col, shell as shell_col, run_all,
+        git as git_col, shell as shell_col, CollectorRegistry,
     };
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
@@ -406,7 +406,7 @@ fn collect(which: CollectKind) -> Result<()> {
         }
         CollectKind::All => {
             let repos = resolve_repos(vec![]);
-            for r in run_all(&journal, &identity, &repos) {
+            for r in CollectorRegistry::with_defaults(&repos).run_all(&journal, &identity) {
                 match r.count {
                     Ok(n)  => println!("{}: {} new events", r.name, n),
                     Err(e) => eprintln!("{} skipped: {}", r.name, e),

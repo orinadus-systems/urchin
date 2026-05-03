@@ -1,10 +1,16 @@
-/// urchin-collectors: one module per source.
-/// Each collector reads from a tool's native output and produces Events.
-/// Collectors are passive — they read, they never write to source tools.
-///
-/// `run_all` is the single entry-point used by both the CLI `collect all` command
-/// and the daemon tick loop. Adding a new collector means: implement the module,
-/// register one arm here.
+//! urchin-collectors: passive readers for every tool's native output.
+//!
+//! # Architecture
+//!
+//! Each collector implements the [`Collector`] trait. The [`CollectorRegistry`]
+//! holds all registered collectors and runs them in sequence.
+//!
+//! Adding a new collector:
+//! 1. Create `src/<name>.rs` with `pub fn collect(journal, identity, opts) -> Result<usize>`
+//! 2. Define a struct that implements `Collector`
+//! 3. Add one `registry.register(MyCollector::new())` line in `with_defaults()`
+//!
+//! Collectors never write back to source tools.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,47 +26,176 @@ pub mod shell;
 pub mod git;
 pub mod agent_bridge;
 
-/// One result entry from `run_all`.
+// ─── Trait ───────────────────────────────────────────────────────────────────
+
+/// A passive reader that ingests new events from a single source tool.
+///
+/// Implementations must be `Send + Sync` so the registry can be used across
+/// threads (the daemon runs collectors inside `spawn_blocking`).
+pub trait Collector: Send + Sync {
+    /// Short human-readable name used in log output and CLI.
+    fn name(&self) -> &'static str;
+
+    /// Collect new events and append them to the journal.
+    /// Returns the number of events ingested this run.
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize>;
+
+    /// Whether the source this collector reads from is present on this machine.
+    /// Return `false` to skip silently. Default: `true`.
+    fn is_available(&self) -> bool {
+        true
+    }
+}
+
+// ─── Result ──────────────────────────────────────────────────────────────────
+
+/// Output from one collector run.
 pub struct CollectorResult {
     pub name:  &'static str,
     pub count: anyhow::Result<usize>,
 }
 
-/// Run every collector that has a default path wired up.
-/// `repo_roots` drives the git collector; if empty it falls back to `URCHIN_REPO_ROOTS`.
-pub fn run_all(
-    journal: &Arc<Journal>,
-    identity: &Arc<Identity>,
-    repo_roots: &[PathBuf],
-) -> Vec<CollectorResult> {
-    let mut results = Vec::new();
+// ─── Registry ────────────────────────────────────────────────────────────────
 
-    results.push(CollectorResult {
-        name:  "shell",
-        count: shell::collect(journal, identity, &shell::ShellOpts::defaults()),
-    });
+/// Holds all registered collectors and drives them in order.
+pub struct CollectorRegistry {
+    collectors: Vec<Box<dyn Collector>>,
+}
 
-    for repo in repo_roots {
-        results.push(CollectorResult {
-            name:  "git",
-            count: git::collect_repo(journal, identity, &git::GitOpts::defaults_for(repo.clone())),
-        });
+impl CollectorRegistry {
+    /// Empty registry.
+    pub fn new() -> Self {
+        Self { collectors: Vec::new() }
     }
 
-    results.push(CollectorResult {
-        name:  "claude",
-        count: claude::collect(journal, identity, &claude::ClaudeOpts::defaults()),
-    });
+    /// Registry pre-loaded with every built-in collector.
+    ///
+    /// `repo_roots` is forwarded to the git collector. If empty the git
+    /// collector reads from `URCHIN_REPO_ROOTS`.
+    pub fn with_defaults(repo_roots: &[PathBuf]) -> Self {
+        let mut r = Self::new();
+        r.register(ShellCollector::new());
+        r.register(GitCollector::new(repo_roots));
+        r.register(ClaudeCollector::new());
+        r.register(CopilotCollector::new());
+        r.register(GeminiCollector::new());
+        r
+    }
 
-    results.push(CollectorResult {
-        name:  "copilot",
-        count: copilot::collect(journal, identity, &copilot::CopilotOpts::defaults()),
-    });
+    /// Add a collector to the registry.
+    pub fn register(&mut self, c: impl Collector + 'static) {
+        self.collectors.push(Box::new(c));
+    }
 
-    results.push(CollectorResult {
-        name:  "gemini",
-        count: gemini::collect(journal, identity, &gemini::GeminiOpts::defaults()),
-    });
+    /// Run every available collector in registration order.
+    ///
+    /// Collectors that return `is_available() == false` are silently skipped.
+    pub fn run_all(
+        &self,
+        journal: &Arc<Journal>,
+        identity: &Arc<Identity>,
+    ) -> Vec<CollectorResult> {
+        self.collectors
+            .iter()
+            .filter(|c| c.is_available())
+            .map(|c| CollectorResult {
+                name:  c.name(),
+                count: c.collect(journal.as_ref(), identity.as_ref()),
+            })
+            .collect()
+    }
+}
 
-    results
+impl Default for CollectorRegistry {
+    fn default() -> Self {
+        Self::with_defaults(&[])
+    }
+}
+
+// ─── Built-in collector structs ───────────────────────────────────────────────
+
+struct ShellCollector {
+    opts: shell::ShellOpts,
+}
+impl ShellCollector {
+    fn new() -> Self { Self { opts: shell::ShellOpts::defaults() } }
+}
+impl Collector for ShellCollector {
+    fn name(&self) -> &'static str { "shell" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        shell::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.history_path.exists() }
+}
+
+struct GitCollector {
+    repo_roots: Vec<PathBuf>,
+}
+impl GitCollector {
+    fn new(roots: &[PathBuf]) -> Self {
+        let repo_roots = if roots.is_empty() {
+            std::env::var("URCHIN_REPO_ROOTS")
+                .unwrap_or_default()
+                .split(':')
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .collect()
+        } else {
+            roots.to_vec()
+        };
+        Self { repo_roots }
+    }
+}
+impl Collector for GitCollector {
+    fn name(&self) -> &'static str { "git" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        let mut total = 0usize;
+        for repo in &self.repo_roots {
+            total += git::collect_repo(journal, identity, &git::GitOpts::defaults_for(repo.clone()))?;
+        }
+        Ok(total)
+    }
+    fn is_available(&self) -> bool { !self.repo_roots.is_empty() }
+}
+
+struct ClaudeCollector {
+    opts: claude::ClaudeOpts,
+}
+impl ClaudeCollector {
+    fn new() -> Self { Self { opts: claude::ClaudeOpts::defaults() } }
+}
+impl Collector for ClaudeCollector {
+    fn name(&self) -> &'static str { "claude" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        claude::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.history_path.exists() }
+}
+
+struct CopilotCollector {
+    opts: copilot::CopilotOpts,
+}
+impl CopilotCollector {
+    fn new() -> Self { Self { opts: copilot::CopilotOpts::defaults() } }
+}
+impl Collector for CopilotCollector {
+    fn name(&self) -> &'static str { "copilot" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        copilot::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.history_path.exists() }
+}
+
+struct GeminiCollector {
+    opts: gemini::GeminiOpts,
+}
+impl GeminiCollector {
+    fn new() -> Self { Self { opts: gemini::GeminiOpts::defaults() } }
+}
+impl Collector for GeminiCollector {
+    fn name(&self) -> &'static str { "gemini" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        gemini::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.chats_dir.exists() }
 }
