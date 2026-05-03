@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
 ![Status](https://img.shields.io/badge/status-v0.2.0--dev-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
-![Tests](https://img.shields.io/badge/tests-92%20passing-success)
+![Tests](https://img.shields.io/badge/tests-96%20passing-success)
 
 </div>
 
@@ -62,7 +62,7 @@ Collectors are passive readers — they never write back to source tools. The jo
 | Identity envelope | ✅ shipped | account/device on every event |
 | TOML config + env overrides | ✅ shipped | defaults → `~/.config/urchin/config.toml` → env |
 | HTTP intake | ✅ shipped | `POST /ingest`, `GET /health` — `127.0.0.1` only |
-| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 8 tools |
+| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 9 tools |
 | Daemon mode | ✅ shipped | `urchin serve` — collector loop + intake server |
 | Shell collector | ✅ shipped | `~/.bash_history`, byte-offset checkpoint |
 | Git collector | ✅ shipped | per-repo SHA checkpoint, silent first run |
@@ -73,8 +73,9 @@ Collectors are passive readers — they never write back to source tools. The jo
 | Codex collector | ✅ shipped | `~/.codex/state_5.sqlite`, threads table, `first_user_message` intent capture |
 | OpenCode collector | ✅ shipped | `~/.local/share/opencode/opencode.db`, message JOIN session, user-role filter |
 | Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file — Ollama, llama.cpp, any harness |
+| `urchin-agent` Reasoner trait | ✅ shipped | `EchoReasoner` (deterministic), `HttpReasoner` (Ollama-compat via `URCHIN_REASONER_URL`) |
 
-**92 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (17), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (11).
+**96 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (17), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (15).
 
 ---
 

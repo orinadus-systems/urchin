@@ -7,6 +7,35 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.1] — 2025-07-05
+
+### Added
+
+**`Reasoner` trait in `urchin-agent`**
+- `Reasoner: Send + Sync` trait — pluggable LLM backend for the reflection loop
+- `EchoReasoner` — deterministic (no network), used in all tests, default when no endpoint is configured
+- `HttpReasoner` — Ollama-compat `/api/generate` HTTP backend
+  - Reads `URCHIN_REASONER_URL` + `URCHIN_REASONER_MODEL` env vars at construction
+  - Builds a structured prompt (goal + context) and returns `response.response`
+  - Falls back silently to `EchoReasoner` when URL is not set
+- `reflect::synthesise` now takes `&dyn Reasoner` — deterministic fallback when reasoner errors
+- `Agent::new()` selects backend from env: `HttpReasoner` if URL set, `EchoReasoner` otherwise
+- `ureq = "2"` dep added (sync HTTP, no tokio in agent crate)
+
+### Test counts
+
+| Crate              | Tests |
+|--------------------|-------|
+| `urchin-core`      | 7     |
+| `urchin-intake`    | 2     |
+| `urchin-mcp`       | 17    |
+| `urchin-collectors`| 52    |
+| `urchin-vault`     | 3     |
+| `urchin-agent`     | **15** (+4) |
+| **Total**          | **96** |
+
+---
+
 ## [0.3.0] — 2025-07-05
 
 ### Added
