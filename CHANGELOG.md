@@ -7,6 +7,47 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.0] — 2025-07-05
+
+### Added
+
+**MCP hardening for daily Cursor/Zed use**
+- Committed `.cursor/mcp.json` — drop this in any repo and Cursor picks up the 9-tool server automatically
+- README IDE Setup section: config blocks for Cursor, Zed, VS Code
+- MCP server test renamed to `tools_list_returns_nine_tools` to stay in sync
+
+**`urchin-agent` skeleton crate** (`crates/urchin-agent/`)
+- `Agent` struct + `AgentConfig` builder (`with_hours`, `with_limit`)
+- `context::load()` — time-window + count filter over journal events
+- `context::format_context()` — renders structured context block
+- `reflect::synthesise()` — deterministic text pass (Phase 2 ReAct; Phase 4 slot reserved for LLM backend)
+- `reflect::to_event()` — wraps reflection as `EventKind::Agent` journal event
+- `run()` full loop: load → reflect → append back to journal
+- 11 tests
+
+**`urchin agent reflect` CLI subcommand**
+- `urchin agent reflect "<goal>" --hours <f> --limit <n>`
+- Dispatches through `agent_cmd()` in `urchin-cli`
+
+**`urchin_agent_reflect` as 9th MCP tool**
+- Exposed via MCP stdio: `{"goal": "...", "hours": 24, "limit": 30}`
+- Writes the reflection back as an `Agent` event in the journal
+- 17 MCP tests total (was 16)
+
+### Test counts
+
+| Crate              | Tests |
+|--------------------|-------|
+| `urchin-core`      | 7     |
+| `urchin-intake`    | 2     |
+| `urchin-mcp`       | 17    |
+| `urchin-collectors`| 52    |
+| `urchin-vault`     | 3     |
+| `urchin-agent`     | 11    |
+| **Total**          | **92**|
+
+---
+
 ## [0.2.0] — 2026-07-04
 
 ### Added
