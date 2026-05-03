@@ -114,6 +114,12 @@ enum CollectKind {
     Copilot,
     /// Ingest prompts from ~/.gemini/history
     Gemini,
+    /// Ingest sessions from ~/.codex/state_5.sqlite
+    Codex,
+    /// Ingest sessions from ~/.local/share/opencode/opencode.db
+    Opencode,
+    /// Ingest records from ~/.local/share/urchin/local-model.jsonl
+    LocalModel,
     /// Run every collector that has a default path (shell, git via URCHIN_REPO_ROOTS, claude, copilot, gemini)
     All,
 }
@@ -359,8 +365,9 @@ fn ingest(
 fn collect(which: CollectKind) -> Result<()> {
     use std::sync::Arc;
     use urchin_collectors::{
-        claude as claude_col, copilot as copilot_col, gemini as gemini_col,
-        git as git_col, shell as shell_col, CollectorRegistry,
+        claude as claude_col, codex as codex_col, copilot as copilot_col,
+        gemini as gemini_col, git as git_col, local_model as lm_col,
+        opencode as opencode_col, shell as shell_col, CollectorRegistry,
     };
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
@@ -403,6 +410,18 @@ fn collect(which: CollectKind) -> Result<()> {
         CollectKind::Gemini => {
             let n = gemini_col::collect(&journal, &identity, &gemini_col::GeminiOpts::defaults())?;
             println!("gemini: {} new events", n);
+        }
+        CollectKind::Codex => {
+            let n = codex_col::collect(&journal, &identity, &codex_col::CodexOpts::defaults())?;
+            println!("codex: {} new events", n);
+        }
+        CollectKind::Opencode => {
+            let n = opencode_col::collect(&journal, &identity, &opencode_col::OpenCodeOpts::defaults())?;
+            println!("opencode: {} new events", n);
+        }
+        CollectKind::LocalModel => {
+            let n = lm_col::collect(&journal, &identity, &lm_col::LocalModelOpts::defaults())?;
+            println!("local-model: {} new events", n);
         }
         CollectKind::All => {
             let repos = resolve_repos(vec![]);
