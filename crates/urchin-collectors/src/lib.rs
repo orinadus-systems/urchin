@@ -20,6 +20,7 @@ use urchin_core::{identity::Identity, journal::Journal};
 pub mod state;
 
 pub mod claude;
+pub mod codex;
 pub mod copilot;
 pub mod gemini;
 pub mod shell;
@@ -79,6 +80,7 @@ impl CollectorRegistry {
         r.register(ClaudeCollector::new());
         r.register(CopilotCollector::new());
         r.register(GeminiCollector::new());
+        r.register(CodexCollector::new());
         r
     }
 
@@ -198,4 +200,18 @@ impl Collector for GeminiCollector {
         gemini::collect(journal, identity, &self.opts)
     }
     fn is_available(&self) -> bool { self.opts.chats_dir.exists() }
+}
+
+struct CodexCollector {
+    opts: codex::CodexOpts,
+}
+impl CodexCollector {
+    fn new() -> Self { Self { opts: codex::CodexOpts::defaults() } }
+}
+impl Collector for CodexCollector {
+    fn name(&self) -> &'static str { "codex" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        codex::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.db_path.exists() }
 }
