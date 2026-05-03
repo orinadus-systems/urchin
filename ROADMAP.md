@@ -43,10 +43,11 @@ Human content is never touched.
 
 ---
 
-## Phase 2 — Collector Trait + SQLite Collectors ✅
+## Phase 2 — Collector Trait + Agent Skeleton ✅
 
 **Status:** done and stable  
-**Commits:** `91716e9` (trait/registry/rusqlite), `50237ec` (codex), `05c9e84` (opencode), `5d48dd8` (local-model)
+**Tag:** `v0.3.0`  
+**Commits:** `91716e9` (trait/registry/rusqlite), `50237ec` (codex), `05c9e84` (opencode), `5d48dd8` (local-model), `be2ba80` (MCP hardening + IDE setup docs), `02e5bed` (urchin-agent skeleton + CLI), `f862888` (urchin_agent_reflect MCP tool)
 
 Object-safe `Collector` trait + `CollectorRegistry::with_defaults()`. Any new data source
 becomes one `impl Collector` struct — no changes to daemon or dispatch logic.
@@ -62,19 +63,19 @@ becomes one `impl Collector` struct — no changes to daemon or dispatch logic.
 {"prompt":"fix the memory leak","model":"ollama:mistral","ts":"2026-07-04T10:00:00Z","workspace":"/opt/project"}
 ```
 
-74 tests (core 7, intake 2, mcp 10, collectors 52, vault 3).
+92 tests (core 7, intake 2, mcp 17, collectors 52, vault 3, agent 11).
 
 ---
 
 ## Phase 3 — WebView Collector + Urchin Desktop 🔲
 
 **Status:** planned  
-**Dependency:** Phase 2 stable
+**Dependency:** Phase 2 stable (v0.3.0 baseline, 92 tests)
 
 ### Architecture
 
 The Urchin Desktop is a **Tauri** application:
-- Rust backend = `urchin-rust` (already built)
+- Rust backend = `urchin-rust` (already built — daemon, MCP, collectors)
 - Next.js frontend = Orinadus dashboard (already built)
 
 No tech-stack pivot. The existing binaries become the Tauri backend.
@@ -88,6 +89,53 @@ those sites. Urchin silently captures raw JSON payloads, normalizes the schema, 
 Zero API keys. Zero zip exports. Zero friction. The user logs in normally. Urchin writes.
 
 The WebView intercept is just another `impl Collector` — the trait is already the right interface.
+
+### Required frontend primitives
+
+These are **architectural mandates**, not optional enhancements. A standard React DOM will choke on
+Urchin's data volumes. These must be in the package.json before the first line of Tauri frontend is written.
+
+#### `react-resizable-panels` — The IDE Layout Engine
+
+Developer tools require draggable, high-density split panes. Standard CSS grid/flexbox cannot deliver this.
+
+- The exact mathematical resizing primitive used by VS Code and Cursor
+- Shadcn-native: first-class support in the shadcn component ecosystem
+- Required layout: Claude WebView (left) | live terminal intercept stream (right)
+- Enables the user full physical control over their workspace — drag to resize, collapse panes, snap to presets
+- Without this, the UI is a website. With this, the UI is an IDE.
+
+```bash
+npm install react-resizable-panels
+```
+
+#### `@tanstack/react-virtual` — The DOM Virtualizer
+
+You cannot render 50,000 intercepted terminal logs or git diffs into a standard browser DOM.
+The Tauri app will freeze and the user will uninstall it.
+
+- Headless utility — renders only the exact pixels currently visible on screen
+- Keeps live DOM at ~30 items regardless of total dataset size
+- Guarantees 60fps scrolling through months of local SQLite memory history
+- Required for: journal timeline, terminal log stream, git diff viewer, omni-search results
+- Without this, the data views will not survive real usage.
+
+```bash
+npm install @tanstack/react-virtual
+```
+
+### Sovereignty-first build order
+
+Phase 3 must be built in this exact sequence:
+1. Tauri scaffold — `cargo tauri init`, wire existing `urchin-core` as backend
+2. WebView intercept — `impl Collector` for each AI web UI, network layer interception
+3. Sovereignty layer activated (`.urchinignore` runtime, burn button, ephemeral toggle in UI)
+4. Layout shell — react-resizable-panels pane structure
+5. Data views — @tanstack/react-virtual for journal, terminal, git streams
+6. Omni-search command palette (`Ctrl+K`) — queries Phase 4 vector index
+
+Sovereignty (step 3) gates the UI (steps 4-6). The data can be collected before the UI is ready;
+the UI must not ship before the sovereignty layer is enforced.
 
 ### Omni-search preview
 
