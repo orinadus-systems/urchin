@@ -1,6 +1,7 @@
 /// Tool schemas and execution for the MCP server.
 /// Each tool takes a Value argument map, reads/writes the journal, returns a text block.
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -15,9 +16,13 @@ use urchin_core::{
 };
 
 pub struct ToolContext {
-    pub journal:  Arc<Journal>,
-    pub identity: Arc<Identity>,
-    pub config:   Arc<Config>,
+    pub journal:    Arc<Journal>,
+    pub identity:   Arc<Identity>,
+    pub config:     Arc<Config>,
+    /// Ephemeral mode: when true, ingest/remember are no-ops.
+    pub ephemeral:  Arc<AtomicBool>,
+    /// Count of events suppressed during ephemeral mode.
+    pub suppressed: Arc<AtomicUsize>,
 }
 
 /// JSON Schema definitions returned from tools/list.
@@ -90,17 +95,60 @@ pub fn tool_list() -> Value {
                 "required": ["query"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "urchin_workspace_context",
+            "description": "Return events scoped to a specific workspace path. Call this at the start of a coding session to load relevant memory for the current repo.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path":  { "type": "string", "description": "Absolute path to the workspace/repo. Prefix-matched." },
+                    "hours": { "type": "number", "description": "Look back this many hours. Default 168 (1 week)." },
+                    "limit": { "type": "number", "description": "Max events to return. Default 40." }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "urchin_remember",
+            "description": "Quick-capture: write a memory note without a required workspace. Use this for ideas, decisions, or observations that aren't tied to a specific repo.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "content":   { "type": "string", "description": "The note to capture." },
+                    "tags":      { "type": "array", "items": { "type": "string" }, "description": "Optional tags." },
+                    "workspace": { "type": "string", "description": "Optional workspace path." }
+                },
+                "required": ["content"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "urchin_ephemeral",
+            "description": "Control ephemeral (burn) mode. When active, no events are written to the journal. Use start before sensitive work, end when done.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["start", "end", "status"], "description": "Action to perform." }
+                },
+                "required": ["action"],
+                "additionalProperties": false
+            }
         }
     ])
 }
 
 pub fn call(name: &str, args: &Value, ctx: &ToolContext) -> Result<String> {
     match name {
-        "urchin_status"          => status(ctx),
-        "urchin_ingest"          => ingest(args, ctx),
-        "urchin_recent_activity" => recent_activity(args, ctx),
-        "urchin_project_context" => project_context(args, ctx),
-        "urchin_search"          => search(args, ctx),
+        "urchin_status"             => status(ctx),
+        "urchin_ingest"             => ingest(args, ctx),
+        "urchin_recent_activity"    => recent_activity(args, ctx),
+        "urchin_project_context"    => project_context(args, ctx),
+        "urchin_search"             => search(args, ctx),
+        "urchin_workspace_context"  => workspace_context(args, ctx),
+        "urchin_remember"           => remember(args, ctx),
+        "urchin_ephemeral"          => ephemeral(args, ctx),
         other => Err(anyhow::anyhow!("unknown tool: {}", other)),
     }
 }
@@ -130,6 +178,11 @@ fn status(ctx: &ToolContext) -> Result<String> {
 }
 
 fn ingest(args: &Value, ctx: &ToolContext) -> Result<String> {
+    if ctx.ephemeral.load(Ordering::Relaxed) {
+        ctx.suppressed.fetch_add(1, Ordering::Relaxed);
+        return Ok("(ephemeral mode: event suppressed)".to_string());
+    }
+
     let content   = required_str(args, "content")?;
     let workspace = required_str(args, "workspace")?;
     let source    = opt_str(args, "source").unwrap_or_else(|| "mcp".to_string());
@@ -183,6 +236,68 @@ fn search(args: &Value, ctx: &ToolContext) -> Result<String> {
     let events   = ctx.journal.read_all()?;
     let filtered = query::search_content(&events, &query_str, hours, limit);
     Ok(query::format_events(&filtered))
+}
+
+fn workspace_context(args: &Value, ctx: &ToolContext) -> Result<String> {
+    let path  = required_str(args, "path")?;
+    let hours = opt_f64(args, "hours").unwrap_or(168.0);
+    let limit = opt_usize(args, "limit").unwrap_or(40);
+
+    let events   = ctx.journal.read_all()?;
+    let filtered = query::workspace_context(&events, &path, hours, limit);
+    if filtered.is_empty() {
+        return Ok(format!("No events found for workspace: {}", path));
+    }
+    Ok(format!("Events for {}:\n\n{}", path, query::format_events(&filtered)))
+}
+
+fn remember(args: &Value, ctx: &ToolContext) -> Result<String> {
+    if ctx.ephemeral.load(Ordering::Relaxed) {
+        ctx.suppressed.fetch_add(1, Ordering::Relaxed);
+        return Ok("(ephemeral mode: note suppressed)".to_string());
+    }
+
+    let content   = required_str(args, "content")?;
+    let tags      = opt_str_array(args, "tags");
+    let workspace = opt_str(args, "workspace");
+
+    let mut event = Event::new("mcp", EventKind::Decision, content.clone());
+    event.workspace = workspace.clone();
+    event.tags      = tags;
+    event.actor = Some(Actor {
+        account:   Some(ctx.identity.account.clone()),
+        device:    Some(ctx.identity.device.clone()),
+        workspace: workspace,
+    });
+
+    ctx.journal.append(&event)?;
+    Ok(format!("Remembered: {}", truncate_label(&content, 80)))
+}
+
+fn ephemeral(args: &Value, ctx: &ToolContext) -> Result<String> {
+    let action = required_str(args, "action")?;
+    match action.as_str() {
+        "start" => {
+            ctx.ephemeral.store(true, Ordering::Relaxed);
+            ctx.suppressed.store(0, Ordering::Relaxed);
+            Ok("Ephemeral mode ACTIVE — no events will be written until you call end.".to_string())
+        }
+        "end" => {
+            ctx.ephemeral.store(false, Ordering::Relaxed);
+            let n = ctx.suppressed.swap(0, Ordering::Relaxed);
+            Ok(format!("Ephemeral mode ended. {} event(s) were suppressed and are permanently gone.", n))
+        }
+        "status" => {
+            let active = ctx.ephemeral.load(Ordering::Relaxed);
+            let n = ctx.suppressed.load(Ordering::Relaxed);
+            if active {
+                Ok(format!("Ephemeral mode: ACTIVE ({} event(s) suppressed so far)", n))
+            } else {
+                Ok("Ephemeral mode: inactive — all events are being recorded normally.".to_string())
+            }
+        }
+        other => Err(anyhow::anyhow!("unknown action '{}'; expected start | end | status", other)),
+    }
 }
 
 fn parse_kind(s: &str) -> EventKind {
@@ -248,9 +363,11 @@ mod tests {
         let mut cfg = Config::default();
         cfg.journal_path = tmp.path().to_path_buf();
         let ctx = ToolContext {
-            journal:  Arc::new(Journal::new(tmp.path().to_path_buf())),
-            identity: Arc::new(Identity { account: "test".into(), device: "test".into() }),
-            config:   Arc::new(cfg),
+            journal:    Arc::new(Journal::new(tmp.path().to_path_buf())),
+            identity:   Arc::new(Identity { account: "test".into(), device: "test".into() }),
+            config:     Arc::new(cfg),
+            ephemeral:  Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            suppressed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
         (ctx, tmp)
     }
@@ -293,5 +410,60 @@ mod tests {
         let out = project_context(&json!({"project": "urchin-rust"}), &ctx).unwrap();
         assert!(out.contains("— a"));
         assert!(!out.contains("— b"));
+    }
+
+    #[test]
+    fn workspace_context_filters_by_path_prefix() {
+        let (ctx, _tmp) = ctx_with_tmp_journal();
+        ingest(&json!({"content": "inside", "workspace": "/home/me/dev/urchin"}), &ctx).unwrap();
+        ingest(&json!({"content": "outside", "workspace": "/home/me/dev/other"}),  &ctx).unwrap();
+
+        let out = workspace_context(&json!({"path": "/home/me/dev/urchin"}), &ctx).unwrap();
+        assert!(out.contains("inside"));
+        assert!(!out.contains("outside"));
+    }
+
+    #[test]
+    fn workspace_context_empty_returns_no_events_message() {
+        let (ctx, _tmp) = ctx_with_tmp_journal();
+        let out = workspace_context(&json!({"path": "/nonexistent/path"}), &ctx).unwrap();
+        assert!(out.contains("No events found"));
+    }
+
+    #[test]
+    fn remember_writes_event() {
+        let (ctx, _tmp) = ctx_with_tmp_journal();
+        let out = remember(&json!({"content": "store this idea", "tags": ["idea"]}), &ctx).unwrap();
+        assert!(out.contains("store this idea"));
+
+        let found = search(&json!({"query": "store this idea"}), &ctx).unwrap();
+        assert!(found.contains("store this idea"));
+    }
+
+    #[test]
+    fn ephemeral_lifecycle_suppresses_events() {
+        let (ctx, _tmp) = ctx_with_tmp_journal();
+
+        // Start ephemeral mode
+        let start = ephemeral(&json!({"action": "start"}), &ctx).unwrap();
+        assert!(start.contains("ACTIVE"));
+
+        // Ingest + remember are suppressed
+        let r1 = ingest(&json!({"content": "secret", "workspace": "/w"}), &ctx).unwrap();
+        assert!(r1.contains("suppressed"));
+        let r2 = remember(&json!({"content": "also secret"}), &ctx).unwrap();
+        assert!(r2.contains("suppressed"));
+
+        // Status shows 2 suppressed
+        let s = ephemeral(&json!({"action": "status"}), &ctx).unwrap();
+        assert!(s.contains("2"));
+
+        // End — events are gone
+        let end = ephemeral(&json!({"action": "end"}), &ctx).unwrap();
+        assert!(end.contains("2 event(s) were suppressed"));
+
+        // Journal is empty
+        let journal = ctx.journal.read_all().unwrap();
+        assert_eq!(journal.len(), 0);
     }
 }

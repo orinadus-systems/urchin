@@ -1,6 +1,7 @@
 /// JSON-RPC 2.0 over stdio for MCP. One request per line on stdin,
 /// one response per line on stdout. All logs go to stderr — stdout is protocol-only.
 
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -17,9 +18,11 @@ const SERVER_VERSION:   &str = env!("CARGO_PKG_VERSION");
 
 pub async fn run(cfg: Config) -> Result<()> {
     let ctx = ToolContext {
-        journal:  Arc::new(Journal::new(cfg.journal_path.clone())),
-        identity: Arc::new(Identity::resolve()),
-        config:   Arc::new(cfg),
+        journal:    Arc::new(Journal::new(cfg.journal_path.clone())),
+        identity:   Arc::new(Identity::resolve()),
+        config:     Arc::new(cfg),
+        ephemeral:  Arc::new(AtomicBool::new(false)),
+        suppressed: Arc::new(AtomicUsize::new(0)),
     };
 
     let stdin  = tokio::io::stdin();
@@ -86,6 +89,15 @@ fn handle(req: &Value, ctx: &ToolContext) -> Option<Value> {
         "tools/list" => {
             let result = json!({ "tools": tools::tool_list() });
             Some(success_response(&id.unwrap_or(Value::Null), result))
+        }
+
+        // MCP spec requires these to be answered even if empty.
+        "resources/list" => {
+            Some(success_response(&id.unwrap_or(Value::Null), json!({ "resources": [] })))
+        }
+
+        "prompts/list" => {
+            Some(success_response(&id.unwrap_or(Value::Null), json!({ "prompts": [] })))
         }
 
         "tools/call" => {
@@ -159,9 +171,11 @@ mod tests {
         let mut cfg = Config::default();
         cfg.journal_path = tmp.path().to_path_buf();
         let ctx = ToolContext {
-            journal:  Arc::new(Journal::new(tmp.path().to_path_buf())),
-            identity: Arc::new(Identity { account: "t".into(), device: "t".into() }),
-            config:   Arc::new(cfg),
+            journal:    Arc::new(Journal::new(tmp.path().to_path_buf())),
+            identity:   Arc::new(Identity { account: "t".into(), device: "t".into() }),
+            config:     Arc::new(cfg),
+            ephemeral:  Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            suppressed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
         (ctx, tmp)
     }
@@ -193,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_returns_five_tools() {
+    fn tools_list_returns_eight_tools() {
         let (ctx, _tmp) = test_ctx();
         let req = json!({
             "jsonrpc": "2.0",
@@ -202,13 +216,16 @@ mod tests {
         });
         let resp = handle(&req, &ctx).unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 8);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"urchin_status"));
         assert!(names.contains(&"urchin_ingest"));
         assert!(names.contains(&"urchin_recent_activity"));
         assert!(names.contains(&"urchin_project_context"));
         assert!(names.contains(&"urchin_search"));
+        assert!(names.contains(&"urchin_workspace_context"));
+        assert!(names.contains(&"urchin_remember"));
+        assert!(names.contains(&"urchin_ephemeral"));
     }
 
     #[test]
@@ -249,5 +266,21 @@ mod tests {
         });
         let resp = handle(&req, &ctx).unwrap();
         assert_eq!(resp["result"]["isError"], true);
+    }
+
+    #[test]
+    fn resources_list_returns_empty() {
+        let (ctx, _tmp) = test_ctx();
+        let req = json!({ "jsonrpc": "2.0", "id": 6, "method": "resources/list" });
+        let resp = handle(&req, &ctx).unwrap();
+        assert_eq!(resp["result"]["resources"], json!([]));
+    }
+
+    #[test]
+    fn prompts_list_returns_empty() {
+        let (ctx, _tmp) = test_ctx();
+        let req = json!({ "jsonrpc": "2.0", "id": 7, "method": "prompts/list" });
+        let resp = handle(&req, &ctx).unwrap();
+        assert_eq!(resp["result"]["prompts"], json!([]));
     }
 }

@@ -43,6 +43,25 @@ pub fn project_context<'a>(events: &'a [Event], project: &str, hours: f64, limit
     filtered
 }
 
+/// Events whose workspace starts with `path` (case-insensitive prefix match).
+pub fn workspace_context<'a>(events: &'a [Event], path: &str, hours: f64, limit: usize) -> Vec<&'a Event> {
+    let p = path.to_lowercase();
+    let cutoff = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
+    let mut filtered: Vec<&Event> = events
+        .iter()
+        .filter(|e| e.timestamp >= cutoff)
+        .filter(|e| {
+            e.workspace
+                .as_deref()
+                .map(|w| w.to_lowercase().starts_with(&p) || w.to_lowercase().contains(&p))
+                .unwrap_or(false)
+        })
+        .collect();
+    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    filtered.truncate(limit);
+    filtered
+}
+
 pub fn format_events(events: &[&Event]) -> String {
     if events.is_empty() {
         return "(no matching events)".to_string();
