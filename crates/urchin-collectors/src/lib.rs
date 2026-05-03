@@ -21,6 +21,7 @@ pub mod state;
 
 pub mod claude;
 pub mod codex;
+pub mod opencode;
 pub mod copilot;
 pub mod gemini;
 pub mod shell;
@@ -81,6 +82,7 @@ impl CollectorRegistry {
         r.register(CopilotCollector::new());
         r.register(GeminiCollector::new());
         r.register(CodexCollector::new());
+        r.register(OpenCodeCollector::new());
         r
     }
 
@@ -212,6 +214,20 @@ impl Collector for CodexCollector {
     fn name(&self) -> &'static str { "codex" }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         codex::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.db_path.exists() }
+}
+
+struct OpenCodeCollector {
+    opts: opencode::OpenCodeOpts,
+}
+impl OpenCodeCollector {
+    fn new() -> Self { Self { opts: opencode::OpenCodeOpts::defaults() } }
+}
+impl Collector for OpenCodeCollector {
+    fn name(&self) -> &'static str { "opencode" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        opencode::collect(journal, identity, &self.opts)
     }
     fn is_available(&self) -> bool { self.opts.db_path.exists() }
 }
