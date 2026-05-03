@@ -135,6 +135,20 @@ pub fn tool_list() -> Value {
                 "required": ["action"],
                 "additionalProperties": false
             }
+        },
+        {
+            "name": "urchin_agent_reflect",
+            "description": "Load recent journal context and emit a structured agent reflection. Reads the last N hours of events from the journal, synthesises them relative to a goal, and writes the result back as an Agent event. Use this to reason about what has happened in a workspace or across all sessions.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "goal":      { "type": "string", "description": "The question or goal to reflect on." },
+                    "hours":     { "type": "number", "description": "How many hours of history to load. Default 24." },
+                    "limit":     { "type": "number", "description": "Max context events to include. Default 30." }
+                },
+                "required": ["goal"],
+                "additionalProperties": false
+            }
         }
     ])
 }
@@ -149,6 +163,7 @@ pub fn call(name: &str, args: &Value, ctx: &ToolContext) -> Result<String> {
         "urchin_workspace_context"  => workspace_context(args, ctx),
         "urchin_remember"           => remember(args, ctx),
         "urchin_ephemeral"          => ephemeral(args, ctx),
+        "urchin_agent_reflect"      => agent_reflect(args, ctx),
         other => Err(anyhow::anyhow!("unknown tool: {}", other)),
     }
 }
@@ -298,6 +313,20 @@ fn ephemeral(args: &Value, ctx: &ToolContext) -> Result<String> {
         }
         other => Err(anyhow::anyhow!("unknown action '{}'; expected start | end | status", other)),
     }
+}
+
+fn agent_reflect(args: &Value, ctx: &ToolContext) -> Result<String> {
+    use urchin_agent::{Agent, AgentConfig};
+
+    let goal  = required_str(args, "goal")?;
+    let hours = opt_f64(args, "hours").unwrap_or(24.0);
+    let limit = opt_usize(args, "limit").unwrap_or(30);
+
+    // Build a fresh Agent using the same config paths as the server.
+    let agent_cfg_run = AgentConfig::new(goal).with_hours(hours).with_limit(limit);
+    let agent = Agent::new((*ctx.config).clone());
+    let reflection = agent.run(&agent_cfg_run)?;
+    Ok(reflection)
 }
 
 fn parse_kind(s: &str) -> EventKind {
@@ -465,5 +494,30 @@ mod tests {
         // Journal is empty
         let journal = ctx.journal.read_all().unwrap();
         assert_eq!(journal.len(), 0);
+    }
+
+    #[test]
+    fn agent_reflect_writes_and_returns_reflection() {
+        let (ctx, _tmp) = ctx_with_tmp_journal();
+
+        // Seed a journal event so context loader has something.
+        ingest(
+            &json!({"content": "debugged the auth flow", "workspace": "/w", "source": "shell"}),
+            &ctx,
+        )
+        .unwrap();
+
+        let result = call(
+            "urchin_agent_reflect",
+            &json!({"goal": "what did I work on?", "hours": 1, "limit": 10}),
+            &ctx,
+        )
+        .unwrap();
+
+        assert!(result.contains("what did I work on?") || result.contains("Reflection"));
+
+        let events = ctx.journal.read_all().unwrap();
+        let has_agent = events.iter().any(|e| e.source == "urchin-agent");
+        assert!(has_agent, "agent event was not written back to journal");
     }
 }

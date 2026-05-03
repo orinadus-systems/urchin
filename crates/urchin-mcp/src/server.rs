@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_returns_eight_tools() {
+    fn tools_list_returns_nine_tools() {
         let (ctx, _tmp) = test_ctx();
         let req = json!({
             "jsonrpc": "2.0",
@@ -216,7 +216,7 @@ mod tests {
         });
         let resp = handle(&req, &ctx).unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 8);
+        assert_eq!(tools.len(), 9);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"urchin_status"));
         assert!(names.contains(&"urchin_ingest"));
