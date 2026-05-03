@@ -75,6 +75,26 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// ReAct agent: load journal context and emit a reflection
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum AgentAction {
+    /// Load recent journal context and emit a structured reflection
+    Reflect {
+        /// The goal or question to reason about
+        goal: String,
+        /// How many hours of history to load (default: 24)
+        #[arg(long, default_value = "24")]
+        hours: f64,
+        /// Max context events to include (default: 30)
+        #[arg(long, default_value = "30")]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -148,6 +168,7 @@ async fn main() -> Result<()> {
         Commands::Vault  { action } => vault_cmd(action),
         Commands::Config { action } => config_cmd(action),
         Commands::Sync => sync().await,
+        Commands::Agent { action } => agent_cmd(action),
     }
 }
 
@@ -610,6 +631,23 @@ fn vault_cmd(action: VaultAction) -> Result<()> {
             };
             projection::project_daily(&journal, &cfg.vault_root, d)?;
             println!("projected {}", d.format("%Y-%m-%d"));
+        }
+    }
+    Ok(())
+}
+
+fn agent_cmd(action: AgentAction) -> Result<()> {
+    use urchin_agent::{Agent, AgentConfig};
+    use urchin_core::config::Config;
+
+    let cfg = Config::load();
+    let agent = Agent::new(cfg);
+
+    match action {
+        AgentAction::Reflect { goal, hours, limit } => {
+            let agent_cfg = AgentConfig::new(goal).with_hours(hours).with_limit(limit);
+            let reflection = agent.run(&agent_cfg)?;
+            println!("{}", reflection);
         }
     }
     Ok(())

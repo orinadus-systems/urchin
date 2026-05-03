@@ -1,0 +1,15 @@
+[package]
+name    = "urchin-agent"
+version = "0.2.0"
+edition = "2021"
+description = "ReAct scaffold: load journal context, reason, emit agent events back to the substrate."
+
+[dependencies]
+urchin-core = { path = "../urchin-core" }
+anyhow      = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+chrono      = { workspace = true }
+tracing     = { workspace = true }
+uuid        = { workspace = true }
+tempfile = "3"
