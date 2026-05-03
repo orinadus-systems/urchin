@@ -1,0 +1,45 @@
+# .urchinignore — Urchin Sovereignty Rules
+#
+# This file defines what the Urchin daemon must NOT capture.
+# Place at ~/.urchinignore (global) or <repo>/.urchinignore (repo-local).
+#
+# The daemon reads this file at startup and on SIGHUP.
+# Unknown keys are silently ignored for forward compatibility.
+#
+# See SOVEREIGNTY.md for the full specification.
+
+# ─── Secrets and credentials ─────────────────────────────────────────────────
+
+ignore: .env
+ignore: .env.*
+ignore: *.pem
+ignore: *.key
+ignore: *.p12
+ignore: *.pfx
+ignore: secrets/
+ignore: .secrets/
+ignore: credentials/
+
+# ─── VCS-tracked sensitive files ─────────────────────────────────────────────
+
+ignore: .netrc
+ignore: .ssh/
+ignore: id_rsa
+ignore: id_ed25519
+
+# ─── Domain blind (Phase 3+ WebView intercept) ───────────────────────────────
+# Urchin will not capture any network traffic to/from these domains.
+# Suffix-matched: "banking.com" blinds "app.banking.com" too.
+
+# ignore_domain: banking.com
+# ignore_domain: internal.company.com
+# ignore_domain: admin.acme.io
+
+# ─── Process blind (terminal capture) ────────────────────────────────────────
+# Shell collector will skip history lines that start with these commands.
+
+ignore_process: gpg
+ignore_process: pass
+# ignore_process: op          # 1Password CLI
+# ignore_process: bw          # Bitwarden CLI
+# ignore_process: gopass
