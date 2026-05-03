@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
 ![Status](https://img.shields.io/badge/status-v0.2.0--dev-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
-![Tests](https://img.shields.io/badge/tests-74%20passing-success)
+![Tests](https://img.shields.io/badge/tests-82%20passing-success)
 
 </div>
 
@@ -62,7 +62,7 @@ Collectors are passive readers — they never write back to source tools. The jo
 | Identity envelope | ✅ shipped | account/device on every event |
 | TOML config + env overrides | ✅ shipped | defaults → `~/.config/urchin/config.toml` → env |
 | HTTP intake | ✅ shipped | `POST /ingest`, `GET /health` — `127.0.0.1` only |
-| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 5 tools |
+| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 8 tools |
 | Daemon mode | ✅ shipped | `urchin serve` — collector loop + intake server |
 | Shell collector | ✅ shipped | `~/.bash_history`, byte-offset checkpoint |
 | Git collector | ✅ shipped | per-repo SHA checkpoint, silent first run |
@@ -74,7 +74,7 @@ Collectors are passive readers — they never write back to source tools. The jo
 | OpenCode collector | ✅ shipped | `~/.local/share/opencode/opencode.db`, message JOIN session, user-role filter |
 | Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file — Ollama, llama.cpp, any harness |
 
-**74 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (10), `urchin-collectors` (52), `urchin-vault` (3).
+**82 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (16), `urchin-collectors` (52), `urchin-vault` (3).
 
 ---
 
@@ -131,7 +131,7 @@ Urchin reads from this file; it never writes to it. The collector is a no-op whe
 crates/
   urchin-core        zero I/O: Event, Journal, Identity, Config
   urchin-intake      axum: POST /ingest, GET /health (127.0.0.1:18799)
-  urchin-mcp         MCP over stdio: 5 tools, JSON-RPC 2.0
+  urchin-mcp         MCP over stdio: 8 tools, JSON-RPC 2.0
   urchin-collectors  shell, git, claude, copilot, gemini, codex, opencode, local-model — all live
   urchin-vault       vault projection: writes marker blocks into ~/brain
   urchin-sdk         shared types for external integrations
@@ -161,12 +161,70 @@ Append-only JSONL. Events are never mutated. Unknown fields are ignored on read.
 | Tool | Args | Purpose |
 |---|---|---|
 | `urchin_status` | — | event count, last event, paths, identity |
-| `urchin_ingest` | `content`, `workspace` | write an event |
-| `urchin_recent_activity` | `hours`, `source`, `limit` | recent events |
+| `urchin_ingest` | `content`, `workspace` | write a structured event |
+| `urchin_recent_activity` | `hours`, `source`, `limit` | recent events, newest first |
 | `urchin_project_context` | `project` | match by content, tags, or workspace path |
 | `urchin_search` | `query` | case-insensitive substring search |
+| `urchin_workspace_context` | `path` | events scoped to a specific workspace CWD — call at session start |
+| `urchin_remember` | `content`, `tags?`, `workspace?` | quick-capture without required workspace |
+| `urchin_ephemeral` | `action: start\|end\|status` | burn mode — suppresses all writes until `end` |
 
 Errors return `isError: true`. Queries return one line per event: `[timestamp] source — content`.
+
+---
+
+## IDE setup
+
+### Cursor
+
+The repo ships `.cursor/mcp.json`. Cursor picks it up automatically when you open the repo.
+Requires `urchin` on `PATH` (`cargo install --path crates/urchin-cli` or add `~/.cargo/bin` to PATH).
+
+```json
+{
+  "mcpServers": {
+    "urchin": {
+      "command": "urchin",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Zed
+
+Add to `~/.config/zed/settings.json`:
+
+```json
+{
+  "context_servers": {
+    "urchin": {
+      "command": {
+        "path": "urchin",
+        "args": ["mcp"]
+      }
+    }
+  }
+}
+```
+
+### VS Code / Copilot Chat
+
+Add to `.vscode/mcp.json` in your workspace:
+
+```json
+{
+  "servers": {
+    "urchin": {
+      "type": "stdio",
+      "command": "urchin",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+After adding: restart the IDE. Run `urchin_status` in the assistant to confirm the substrate is reachable.
 
 ---
 

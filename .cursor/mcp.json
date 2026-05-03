@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "urchin": {
+      "command": "urchin",
+      "args": ["mcp"],
+      "env": {}
+    }
+  }
+}
