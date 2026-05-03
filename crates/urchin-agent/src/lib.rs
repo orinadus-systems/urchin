@@ -1,18 +1,22 @@
 /// urchin-agent: ReAct scaffold for the Urchin substrate.
 ///
-/// An agent loads recent context from the journal, runs a single reasoning
-/// pass over it, and writes its output back as an `EventKind::Agent` event.
-/// Nothing leaves the machine; the journal is the execution log.
+/// An agent loads recent context from the journal, runs a reasoning
+/// pass over it via a pluggable `Reasoner` backend, and writes its output
+/// back as an `EventKind::Agent` event. Nothing leaves the machine;
+/// the journal is the execution log.
 ///
-/// This is the skeleton. The reasoning step is pluggable — today it is a
-/// deterministic text pass; the trait is designed to accept an LLM backend
-/// when Phase 4 (vector + candle) lands.
+/// Reasoner selection at runtime:
+/// - `URCHIN_REASONER_URL` set → `HttpReasoner` (Ollama-compat endpoint)
+/// - not set → `EchoReasoner` (deterministic, no network, default for tests)
 
 pub mod context;
+pub mod reasoner;
 pub mod reflect;
 
 use anyhow::Result;
 use urchin_core::{config::Config, identity::Identity, journal::Journal};
+
+use reasoner::{EchoReasoner, HttpReasoner, Reasoner};
 
 /// Configuration for a single agent run.
 #[derive(Debug, Clone)]
@@ -48,23 +52,32 @@ impl AgentConfig {
     }
 }
 
-/// A single agent run: load context → reflect → write.
+/// A single agent run: load context → reason → write.
 pub struct Agent {
     journal:  Journal,
     identity: Identity,
+    reasoner: Box<dyn Reasoner>,
 }
 
 impl Agent {
     pub fn new(cfg: Config) -> Self {
+        let reasoner: Box<dyn Reasoner> = match HttpReasoner::from_env() {
+            Some(r) => {
+                tracing::info!("using HttpReasoner");
+                Box::new(r)
+            }
+            None => Box::new(EchoReasoner),
+        };
         Self {
             journal:  Journal::new(cfg.journal_path.clone()),
             identity: Identity::resolve(),
+            reasoner,
         }
     }
 
     /// Run the reflect loop:
     /// 1. Load recent events from the journal as context.
-    /// 2. Call `reflect::synthesise` to produce a reflection.
+    /// 2. Call the `Reasoner` backend to produce a reflection.
     /// 3. Write the reflection back as an `Agent` event.
     /// Returns the reflection text.
     pub fn run(&self, agent_cfg: &AgentConfig) -> Result<String> {
@@ -77,7 +90,7 @@ impl Agent {
             "agent run starting"
         );
 
-        let reflection = reflect::synthesise(&agent_cfg.goal, &ctx);
+        let reflection = reflect::synthesise(&agent_cfg.goal, &ctx, self.reasoner.as_ref());
 
         let event = reflect::to_event(
             &reflection,
