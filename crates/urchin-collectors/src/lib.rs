@@ -22,6 +22,7 @@ pub mod state;
 pub mod claude;
 pub mod codex;
 pub mod opencode;
+pub mod local_model;
 pub mod copilot;
 pub mod gemini;
 pub mod shell;
@@ -83,6 +84,7 @@ impl CollectorRegistry {
         r.register(GeminiCollector::new());
         r.register(CodexCollector::new());
         r.register(OpenCodeCollector::new());
+        r.register(LocalModelCollector::new());
         r
     }
 
@@ -230,4 +232,18 @@ impl Collector for OpenCodeCollector {
         opencode::collect(journal, identity, &self.opts)
     }
     fn is_available(&self) -> bool { self.opts.db_path.exists() }
+}
+
+struct LocalModelCollector {
+    opts: local_model::LocalModelOpts,
+}
+impl LocalModelCollector {
+    fn new() -> Self { Self { opts: local_model::LocalModelOpts::defaults() } }
+}
+impl Collector for LocalModelCollector {
+    fn name(&self) -> &'static str { "local-model" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        local_model::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.drop_file.exists() }
 }
