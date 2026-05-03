@@ -1,53 +1,56 @@
-# Urchin dev loop
+# Urchin — dev loop
 
 ## Repo layout
+
 ```
 crates/
-  urchin-core/       — zero I/O, shared types and event model
-  urchin-intake/     — axum HTTP POST /ingest, GET /health  (port 18799)
-  urchin-cli/        — single binary: urchin
-  urchin-mcp/        — MCP over stdio, 5 tools
-  urchin-collectors/ — claude/shell/git wired; copilot/gemini stubbed
-  urchin-vault/      — Obsidian projection (stub)
+  urchin-core/       zero I/O — shared types: Event, Journal, Identity, Config
+  urchin-intake/     axum HTTP: POST /ingest, GET /health (port 18799)
+  urchin-mcp/        MCP over stdio: 5 tools, JSON-RPC 2.0
+  urchin-collectors/ shell, git, claude, copilot, gemini — all live
+  urchin-vault/      vault projection: atomic marker-block writes into ~/brain
+  urchin-sdk/        shared types for external integrations
+  urchin-cli/        single binary: urchin
 ```
 
 ## Build
 
 ```bash
 cd ~/dev/orinadus/substrate/urchin-rust
-cargo build              # dev build
-cargo build --release    # release build
+cargo build              # dev binary → target/debug/urchin
+cargo build --release    # release binary
+cargo test               # 56 tests
 ```
 
-## Running the daemon
-
-The daemon is managed by systemd user service:
+## Daemon (systemd user service)
 
 ```bash
-systemctl --user start urchin      # start
-systemctl --user stop urchin       # stop
-systemctl --user restart urchin    # restart (picks up new binary automatically)
-journalctl --user -u urchin -f     # follow logs
+systemctl --user start urchin        # start
+systemctl --user stop urchin         # stop
+systemctl --user restart urchin      # restart — picks up new binary automatically
+journalctl --user -u urchin -f       # follow logs
 ```
 
-After `cargo build`, run `systemctl --user restart urchin` to pick up the new binary.
+After `cargo build`, restart the service to pick up the new binary.
 
 ## MCP
 
-All three clients (Claude, VS Code, Copilot CLI) are configured to use:
+All AI clients (Claude, VS Code, Copilot CLI) are configured to use:
 ```
 /home/samhc/dev/orinadus/substrate/urchin-rust/target/debug/urchin mcp
 ```
 
-MCP runs as a child process launched on-demand by each client. Rebuilding the binary is enough — clients restart it on their next call.
+MCP runs as a child process launched on-demand. Rebuilding the binary is enough.
 
 ## Tests
 
 ```bash
-cargo test                         # run all tests
-cargo test -p urchin-core          # single crate
-cargo test -- --nocapture          # show stdout
+cargo test                            # all crates
+cargo test -p urchin-collectors       # single crate
+cargo test -- --nocapture             # show stdout
 ```
+
+Test counts: core (7), intake (2), mcp (10), collectors (34), vault (3) = **56 total**
 
 ## Health check
 
@@ -56,23 +59,59 @@ urchin doctor
 curl -s http://127.0.0.1:18799/health
 ```
 
-## Config
-
-`~/.config/urchin/config.toml` — runtime config.
-
-- `cloud_url`: `https://www.orinadus.com/api/urchin-sync` (live — platform ingest endpoint)
-- `cloud_token`: Bearer token matching `URCHIN_SYNC_TOKEN` on the platform
-- Run `urchin sync` to push buffered journal events to the cloud
-
-Cloud sync writes to `urchin_events` table in Supabase via orinadus-platform.
-The shuttle checkpoints progress so retries are safe.
-
-## Collector runs (manual)
+## Manual collector runs
 
 ```bash
-urchin collect claude    # ingest new claude history entries
-urchin collect shell     # ingest shell history delta
-urchin collect git       # ingest recent git activity
+urchin collect shell                  # shell history delta
+urchin collect git                    # git commits delta
+urchin collect claude                 # claude transcripts delta
+urchin collect copilot                # copilot command history delta
+urchin collect gemini                 # gemini chat sessions delta
+urchin collect all                    # every collector
 ```
 
-Collectors are also wired into the daemon's auto-collection cycle when `serve` is running.
+## Query the journal
+
+```bash
+urchin recent --n 20                  # last 20 events
+urchin recent --source claude --n 10  # last 10 from claude
+urchin query "some keyword"           # search journal
+```
+
+## Vault projection
+
+```bash
+urchin vault project                  # project today → ~/brain/daily/YYYY-MM-DD.md
+urchin vault project --date 2026-05-01
+```
+
+Writes inside `<!-- URCHIN:DAILY -->` marker blocks only. Human content is never touched.
+
+## Cloud sync
+
+```bash
+urchin sync                           # push journal events to orinadus.com
+```
+
+Config: `cloud_url` and `cloud_token` in `~/.config/urchin/config.toml`.
+Live endpoint: `https://www.orinadus.com/api/urchin-sync`
+
+## Configuration
+
+`~/.config/urchin/config.toml` — all fields optional, env vars override.
+
+```toml
+vault_root   = "/home/samhc/brain"
+intake_port  = 18799
+cloud_url    = "https://www.orinadus.com/api/urchin-sync"
+cloud_token  = "<token>"
+```
+
+## Adding a collector
+
+1. Create `crates/urchin-collectors/src/<name>.rs`
+2. Define `<Name>Opts { source_path, checkpoint_path }` + `impl <Name>Opts { pub fn defaults() -> Self }`
+3. Implement `pub fn collect(journal: &Journal, identity: &Identity, opts: &<Name>Opts) -> Result<usize>`
+4. Add one arm to `run_all()` in `lib.rs`
+5. Add variant to `CollectKind` in `crates/urchin-cli/src/main.rs`
+6. Add tests using `tempfile::tempdir()` — never touch the real home dir in tests

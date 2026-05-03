@@ -2,194 +2,93 @@
 
 # Urchin
 
-**Urchin gives every AI tool the same memory.**
+**The universal substrate. Every tool, one memory.**
 
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
-![Status](https://img.shields.io/badge/status-phase%203%20live-brightgreen)
+![Status](https://img.shields.io/badge/status-v0.2.0--dev-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
+![Tests](https://img.shields.io/badge/tests-56%20passing-success)
 
 </div>
 
 ---
 
-Claude, Copilot, Gemini, Codex, VS Code, the shell... each one has its own memory, none of them share. Urchin runs as a local daemon, collects activity from every tool into one append-only journal, and serves that journal back through MCP and HTTP so any tool can read what the others did.
+Claude, Copilot, Gemini, Codex, OpenCode, the shell, git — each tool has its own memory, none of them share. Urchin runs as a local daemon, collects signals from every tool into one append-only journal, and surfaces that journal through MCP and HTTP so any agent, IDE, or script can read what every other tool did.
 
 > Urchin does not own your tools. It connects them.
-> It is additive. Nobody loses anything. Every tool you already use gets better.
+> Additive. Passive. Nothing you already use loses anything.
 
 ---
 
-## How it flows
+## Architecture
 
 ```mermaid
 flowchart LR
-    C1[Claude]:::pending --> COL
-    C2[Copilot]:::pending --> COL
-    C3[Gemini]:::pending --> COL
-    C4[Shell / Git]:::tool --> COL
+    SH[shell]        --> J
+    GIT[git]         --> J
+    CL[claude]       --> J
+    CP[copilot]      --> J
+    GM[gemini]       --> J
+    CDX[codex]       --> J
+    OC[opencode]     --> J
+    LM[local model]  --> J
+    HI[http POST]    --> J
 
-    COL[Collectors<br/><i>passive readers</i>]:::live -->|append| J
+    J(( journal ))
 
-    HTTP[POST /ingest]:::live -->|append| J
-    MCP[MCP tools/call]:::live -->|append| J
+    J --> MCP[mcp stdio]
+    J --> HTTP[http GET]
+    J --> VAULT[vault ~/brain]
+    J --> SYNC[cloud sync]
 
-    J[(Journal<br/>~/.local/share/urchin/journal/events.jsonl)]:::core
+    classDef core      fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe,font-weight:bold
+    classDef collector fill:#1f2937,stroke:#f59e0b,color:#fef3c7
+    classDef consumer  fill:#064e3b,stroke:#10b981,color:#d1fae5
 
-    J --> MCPR[MCP server<br/>stdio, JSON-RPC]:::live
-    J --> HTTPR[HTTP intake<br/>127.0.0.1:18799]:::live
-
-    MCPR --> T1[Claude Code]:::tool
-    MCPR --> T2[VS Code]:::tool
-    HTTPR --> T3[Any script or agent]:::tool
-
-    classDef tool fill:#1f2937,stroke:#4b5563,color:#f3f4f6
-    classDef live fill:#064e3b,stroke:#10b981,color:#d1fae5
-    classDef pending fill:#422006,stroke:#f59e0b,color:#fef3c7,stroke-dasharray: 4 4
-    classDef core fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe
+    class J core
+    class SH,GIT,CL,CP,GM,CDX,OC,LM,HI collector
+    class MCP,HTTP,VAULT,SYNC consumer
 ```
 
-Solid green boxes are live. Dashed amber boxes are not wired yet (claude/copilot/gemini collectors).
+Collectors are passive readers — they never write back to source tools. The journal is the spine. Everything else is a nerve.
 
 ---
 
 ## Roadmap
 
-| Spike | Status | Description |
+| Feature | Status | Notes |
 |---|---|---|
-| Core types + journal | ✅ shipped | `Event`, `Journal`, `Identity`, `Config` — append-only JSONL at `~/.local/share/urchin/journal/events.jsonl` |
-| Identity envelope | ✅ shipped | Account/device resolved from `$USER` and `/etc/hostname`, attached to every event |
-| TOML config + env overrides | ✅ shipped | Defaults → `~/.config/urchin/config.toml` → environment variables |
-| CLI: `doctor` | ✅ shipped | Identity, config source, vault, intake port, journal stats |
-| CLI: `ingest` | ✅ shipped | `--kind`, `--title`, `--tags`, `--workspace`, `--source` |
-| HTTP intake | ✅ shipped | `POST /ingest`, `GET /health`, bound to `127.0.0.1` only |
-| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0 with 5 tools — status, ingest, recent_activity, project_context, search |
-| Shell collector | ✅ shipped | Tails `~/.bash_history` with byte-offset checkpoint, strips HISTTIMEFORMAT markers |
-| Git collector | ✅ shipped | Per-repo SHA checkpoint, ingests commits since last seen, silent first run to avoid backfill blast |
-| Claude collector | 🔲 planned | Read `~/.claude/history.jsonl` and project transcripts |
-| Copilot collector | 🔲 planned | Read `~/.copilot/session-state/` |
-| Gemini collector | 🔲 planned | Read `~/.gemini/tmp/*/chats/*.json` |
-| Agent bridge | 🔲 planned | Generic JSONL intake queue at `URCHIN_AGENT_EVENTS_PATH` |
-| Daemon mode | 🔲 planned | `urchin serve` runs intake plus a collector tick loop |
-| Vault projection | 🔲 planned | Marker block writes inside `<!-- URCHIN:*:START/END -->`, `_urchin/` namespace only |
-| Remote sync bridge | 🔲 planned | Pull/sync the journal across machines (WSL / VPS) |
+| Core types + journal | ✅ shipped | `Event`, `Journal`, `Identity`, `Config` — append-only JSONL |
+| Identity envelope | ✅ shipped | account/device on every event |
+| TOML config + env overrides | ✅ shipped | defaults → `~/.config/urchin/config.toml` → env |
+| HTTP intake | ✅ shipped | `POST /ingest`, `GET /health` — `127.0.0.1` only |
+| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 5 tools |
+| Daemon mode | ✅ shipped | `urchin serve` — collector loop + intake server |
+| Shell collector | ✅ shipped | `~/.bash_history`, byte-offset checkpoint |
+| Git collector | ✅ shipped | per-repo SHA checkpoint, silent first run |
+| Claude collector | ✅ shipped | `~/.claude/projects/` JSONL transcripts |
+| Copilot collector | ✅ shipped | `~/.copilot/command-history-state.json`, content-addressed checkpoint |
+| Gemini collector | ✅ shipped | `~/.gemini/tmp/*/chats/*.jsonl`, partial-offset checkpoint |
+| Vault projection | ✅ shipped | `urchin vault project` — writes urchin block into `~/brain/daily/YYYY-MM-DD.md` |
+| CLI: `recent` / `query` | ✅ shipped | `urchin recent --n 20`, `urchin query <text>` |
+| Cloud sync | ✅ shipped | `urchin sync` — pushes journal to orinadus.com |
+| Codex collector | 🔲 next | `~/.codex/state_5.sqlite`, threads table |
+| OpenCode collector | 🔲 next | `~/.local/share/opencode/opencode.db`, message table |
+| Local model collector | 🔲 next | generic JSONL drop file — works with Ollama, llama.cpp, anything |
+| Collector registry | 🔲 next | trait-based, `is_available()` self-discovery, one-line registration |
+| Remote sync bridge | 🔲 planned | pull/sync across WSL / VPS |
 
-**28 tests passing** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (10), and `urchin-collectors` (9).
+**56 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (10), `urchin-collectors` (34), `urchin-vault` (3).
 
 ---
 
 ## Quick start
 
 ```bash
-git clone https://github.com/samhcharles/urchin-rust
-cd urchin-rust
-cargo build                                              # → target/debug/urchin
-```
-
-**Health check:**
-
-```bash
-cargo run -p urchin-cli -- doctor
-```
-```
-urchin doctor
-  identity:  account=<you>  device=<host>
-  journal:   ~/.local/share/urchin/journal/events.jsonl
-             426 events, 445 KB, last: 2026-04-24T22:27:18Z (test)
-```
-
-**Write an event from the CLI:**
-
-```bash
-cargo run -p urchin-cli -- ingest \
-  --content "wired MCP to Claude Code" \
-  --workspace "$(pwd)"
-# ingested: <uuid>
-```
-
-**Run the HTTP daemon and hit it:**
-
-```bash
-cargo run -p urchin-cli -- serve &
-curl -s localhost:18799/health
-curl -s -X POST localhost:18799/ingest \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"hello from curl","source":"script","workspace":"/tmp"}'
-```
-
-**Run the MCP server (stdio, JSON-RPC 2.0):**
-
-```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-  | cargo run -p urchin-cli -- mcp 2>/dev/null
-```
-
-To wire it to Claude Code, point your `~/.claude/settings.json` `mcpServers.urchin` entry at `target/debug/urchin` with arg `mcp`.
-
----
-
-## Architecture
-
-```
-crates/
-  urchin-core        types only: Event, Journal, Identity, Config  (zero I/O)
-  urchin-intake      axum HTTP server: POST /ingest, GET /health
-  urchin-mcp         MCP over stdio: 5 tools, JSON-RPC 2.0
-  urchin-collectors  shell + git live; claude/copilot/gemini/agent_bridge stubbed
-  urchin-vault       Obsidian vault projection                            [stubs]
-  urchin-cli         single binary: serve | mcp | doctor | ingest
-```
-
-### Event model
-
-| Field | Type | Notes |
-|---|---|---|
-| `id` | UUID v4 | generated on create |
-| `timestamp` | UTC datetime | ISO-8601 |
-| `source` | string | `claude` / `copilot` / `cli` / `mcp` / ... |
-| `kind` | enum | `Conversation` / `Agent` / `Command` / `Commit` / `File` / `Other` |
-| `content` | string | the payload |
-| `workspace` / `session` / `title` / `tags` | optional | context |
-| `actor` | optional | `{ account, device, workspace }` — identity envelope |
-
-The journal is append-only JSONL. Events are never mutated. Unknown fields are ignored on read, so events from the Node.js reference implementation deserialize cleanly alongside new ones.
-
----
-
-## MCP tools
-
-| Tool | Required args | Purpose |
-|---|---|---|
-| `urchin_status` | — | event count, last event, paths, identity |
-| `urchin_ingest` | `content`, `workspace` | write an event to the journal |
-| `urchin_recent_activity` | — | filter by `hours` / `source` / `limit` |
-| `urchin_project_context` | `project` | match content, tags, or workspace path |
-| `urchin_search` | `query` | case-insensitive substring over content |
-
-Errors return `isError: true` on the content block. Queries return one line per event, newest first: `[timestamp] source — content (truncated to 120 chars)`.
-
----
-
-## HTTP intake
-
-Binds to `127.0.0.1:18799` only. Not a public endpoint.
-
-```
-GET  /health    → { "status": "ok", "events": <count>, "journal": <path> }
-POST /ingest    → { "id": "<uuid>", "status": "ok" }
-```
-
-Request body for `/ingest`:
-
-```json
-{
-  "content":   "required",
-  "source":    "optional, defaults to http",
-  "workspace": "optional",
-  "kind":      "optional, defaults to conversation",
-  "title":     "optional",
-  "tags":      ["optional"],
-  "session":   "optional"
-}
+git clone https://github.com/orinadus-systems/urchin
+cd urchin
+cargo build                        # → target/debug/urchin
+./target/debug/urchin doctor       # verify identity + journal state
 ```
 
 ---
@@ -198,55 +97,103 @@ Request body for `/ingest`:
 
 | Command | Purpose |
 |---|---|
-| `urchin doctor` | Show identity, config source, paths, journal stats |
-| `urchin ingest` | Write a single event from the command line |
-| `urchin serve` | Start the HTTP intake daemon on `127.0.0.1:<port>` |
-| `urchin mcp` | Run the MCP server over stdio (JSON-RPC 2.0) |
-| `urchin collect shell` | Run the shell collector once |
-| `urchin collect git --repo <path>` | Run the git collector for one or more repos |
-| `urchin collect all` | Run every collector with a default source |
+| `urchin doctor` | identity, config source, paths, journal stats |
+| `urchin ingest` | write a single event from the CLI |
+| `urchin serve` | start HTTP intake + collector tick loop (daemon) |
+| `urchin mcp` | run MCP server over stdio (JSON-RPC 2.0) |
+| `urchin collect shell` | run shell collector once |
+| `urchin collect git --repo <path>` | run git collector |
+| `urchin collect claude` | run Claude collector |
+| `urchin collect copilot` | run Copilot collector |
+| `urchin collect gemini` | run Gemini collector |
+| `urchin collect all` | run every collector |
+| `urchin recent [--n N] [--source S]` | show last N events |
+| `urchin query <text>` | keyword search across journal |
+| `urchin vault project [--date YYYY-MM-DD]` | project today's events into brain daily note |
+| `urchin sync` | push journal to cloud |
 
-Build once, run from `target/debug/urchin` or via `cargo run -p urchin-cli -- <command>`.
+---
+
+## Crates
+
+```
+crates/
+  urchin-core        zero I/O: Event, Journal, Identity, Config
+  urchin-intake      axum: POST /ingest, GET /health (127.0.0.1:18799)
+  urchin-mcp         MCP over stdio: 5 tools, JSON-RPC 2.0
+  urchin-collectors  shell, git, claude, copilot, gemini — all live
+  urchin-vault       vault projection: writes marker blocks into ~/brain
+  urchin-sdk         shared types for external integrations
+  urchin-cli         single binary: target/debug/urchin
+```
+
+---
+
+## Event model
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID v4 | generated on create |
+| `timestamp` | UTC ISO-8601 | |
+| `source` | string | `claude` / `copilot` / `shell` / `mcp` / ... |
+| `kind` | enum | `Conversation` / `Agent` / `Command` / `Commit` / `File` / `Other` |
+| `content` | string | the payload |
+| `workspace` / `session` / `title` / `tags` | optional | context |
+| `actor` | optional | `{ account, device, workspace }` |
+
+Append-only JSONL. Events are never mutated. Unknown fields are ignored on read.
+
+---
+
+## MCP tools
+
+| Tool | Args | Purpose |
+|---|---|---|
+| `urchin_status` | — | event count, last event, paths, identity |
+| `urchin_ingest` | `content`, `workspace` | write an event |
+| `urchin_recent_activity` | `hours`, `source`, `limit` | recent events |
+| `urchin_project_context` | `project` | match by content, tags, or workspace path |
+| `urchin_search` | `query` | case-insensitive substring search |
+
+Errors return `isError: true`. Queries return one line per event: `[timestamp] source — content`.
 
 ---
 
 ## Configuration
 
-Config layers, last wins: defaults → `~/.config/urchin/config.toml` → environment variables.
-
 ```toml
-# ~/.config/urchin/config.toml — every key optional
+# ~/.config/urchin/config.toml — all optional
 vault_root   = "/home/you/brain"
 journal_path = "/home/you/.local/share/urchin/journal/events.jsonl"
-cache_path   = "/home/you/.local/share/urchin/event-cache.jsonl"
 intake_port  = 18799
-remote_host  = "vps.example.com"
+cloud_url    = "https://www.orinadus.com/api/urchin-sync"
+cloud_token  = "<bearer-token>"
 ```
 
-| Variable | Overrides | Default |
+| Env var | Overrides | Default |
 |---|---|---|
 | `URCHIN_VAULT_ROOT` | `vault_root` | `~/brain` |
 | `URCHIN_JOURNAL_PATH` | `journal_path` | `~/.local/share/urchin/journal/events.jsonl` |
 | `URCHIN_INTAKE_PORT` | `intake_port` | `18799` |
-| `URCHIN_ACCOUNT` | identity `account` | `$USER` |
-| `URCHIN_DEVICE` | identity `device` | hostname |
-| `URCHIN_REPO_ROOTS` | git repos for `collect git` | _(none)_ — colon-separated paths |
-| `URCHIN_LOG` | tracing filter | `urchin=info` |
+| `URCHIN_ACCOUNT` | identity account | `$USER` |
+| `URCHIN_DEVICE` | identity device | hostname |
+| `URCHIN_REPO_ROOTS` | git repos | colon-separated paths |
+| `URCHIN_LOG` | log filter | `urchin=info` |
 
 ---
 
 ## Rules
 
 > [!IMPORTANT]
-> 1. `urchin-core` has zero I/O — pure types and serialization only.
-> 2. The journal is append-only. Events are written once, never mutated.
-> 3. Vault writes happen only inside `<!-- URCHIN:*:START/END -->` marker blocks or under `_urchin/`. Human content outside markers is untouched.
+> 1. `urchin-core` has zero I/O — pure types only.
+> 2. The journal is append-only. Events are never mutated.
+> 3. Vault writes happen only inside `<!-- URCHIN:* -->` marker blocks. Human content is never touched.
 > 4. Collectors read. They never write back to source tools.
-> 5. MCP is stdio, not HTTP. That's how Claude Code and VS Code wire it.
-> 6. One binary out: `cargo build` → `target/debug/urchin`.
+> 5. MCP is stdio, not HTTP.
+> 6. One binary: `cargo build` → `target/debug/urchin`.
 
 ---
 
 <div align="center">
-<sub>Local-first. Additive. Not a trap.</sub>
+<sub>Local-first. Additive. The substrate is not a product — it is infrastructure.</sub>
 </div>

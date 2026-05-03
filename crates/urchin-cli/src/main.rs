@@ -39,10 +39,51 @@ enum Commands {
         #[command(subcommand)]
         which: CollectKind,
     },
+    /// Show recent journal events
+    Recent {
+        /// Number of events to show (default: 20)
+        #[arg(short, long, default_value = "20")]
+        n: usize,
+        /// Filter by source (e.g. claude, shell, copilot)
+        #[arg(short, long)]
+        source: Option<String>,
+        /// Look back this many hours (default: 168 = 1 week)
+        #[arg(long, default_value = "168")]
+        hours: f64,
+    },
+    /// Search journal events by keyword
+    Query {
+        /// Substring to search for (case-insensitive)
+        text: String,
+        /// Filter by source
+        #[arg(short, long)]
+        source: Option<String>,
+        /// Max results (default: 20)
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+        /// Look back this many hours (default: 168 = 1 week)
+        #[arg(long, default_value = "168")]
+        hours: f64,
+    },
+    /// Vault operations
+    Vault {
+        #[command(subcommand)]
+        action: VaultAction,
+    },
     /// Manage configuration
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum VaultAction {
+    /// Project today's journal events into ~/brain/daily/YYYY-MM-DD.md
+    Project {
+        /// Date to project (default: today, format: YYYY-MM-DD)
+        #[arg(short, long)]
+        date: Option<String>,
     },
 }
 
@@ -69,7 +110,11 @@ enum CollectKind {
     },
     /// Ingest prompts from ~/.claude/history.jsonl
     Claude,
-    /// Run every collector that has a default path (shell, git via URCHIN_REPO_ROOTS, claude)
+    /// Ingest prompts from ~/.copilot/command-history-state.json
+    Copilot,
+    /// Ingest prompts from ~/.gemini/history
+    Gemini,
+    /// Run every collector that has a default path (shell, git via URCHIN_REPO_ROOTS, claude, copilot, gemini)
     All,
 }
 
@@ -92,6 +137,9 @@ async fn main() -> Result<()> {
             ingest(content, source, workspace, title, tags, kind)
         }
         Commands::Collect { which } => collect(which),
+        Commands::Recent { n, source, hours }  => recent(n, source, hours),
+        Commands::Query  { text, source, limit, hours } => query(text, source, limit, hours),
+        Commands::Vault  { action } => vault_cmd(action),
         Commands::Config { action } => config_cmd(action),
         Commands::Sync => sync().await,
     }
@@ -103,7 +151,7 @@ async fn serve() -> Result<()> {
     use tokio::sync::watch;
     use tokio::task::spawn_blocking;
     use tokio::time::{interval, Duration};
-    use urchin_collectors::{claude as claude_col, git as git_col, shell as shell_col};
+    use urchin_collectors::run_all;
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
     let cfg      = Config::load();
@@ -148,34 +196,24 @@ async fn serve() -> Result<()> {
             let jp = tick_jp.clone();
 
             let total = spawn_blocking(move || -> usize {
-                let journal = Journal::new(jp);
-                let mut n = 0usize;
+                let journal = Arc::new(Journal::new(jp));
+                let repos: Vec<PathBuf> = std::env::var("URCHIN_REPO_ROOTS")
+                    .unwrap_or_default()
+                    .split(':')
+                    .filter(|s| !s.is_empty())
+                    .map(PathBuf::from)
+                    .collect();
 
-                let opts = shell_col::ShellOpts::defaults();
-                match shell_col::collect(&journal, &id, &opts) {
-                    Ok(k)  => n += k,
-                    Err(e) => tracing::warn!("[DAEMON] shell: {}", e),
-                }
-
-                if let Ok(roots) = std::env::var("URCHIN_REPO_ROOTS") {
-                    for root in roots.split(':').filter(|s| !s.is_empty()) {
-                        let opts = git_col::GitOpts::defaults_for(
-                            PathBuf::from(root)
-                        );
-                        match git_col::collect_repo(&journal, &id, &opts) {
-                            Ok(k)  => n += k,
-                            Err(e) => tracing::warn!("[DAEMON] git: {}", e),
+                run_all(&journal, &id, &repos)
+                    .into_iter()
+                    .map(|r| match r.count {
+                        Ok(n) => {
+                            if n > 0 { tracing::info!("[DAEMON] {}: {} events", r.name, n); }
+                            n
                         }
-                    }
-                }
-
-                let opts = claude_col::ClaudeOpts::defaults();
-                match claude_col::collect(&journal, &id, &opts) {
-                    Ok(k)  => n += k,
-                    Err(e) => tracing::warn!("[DAEMON] claude: {}", e),
-                }
-
-                n
+                        Err(e) => { tracing::warn!("[DAEMON] {}: {}", r.name, e); 0 }
+                    })
+                    .sum()
             }).await.unwrap_or(0);
 
             println!("[DAEMON] Tick complete: {} total events ingested.", total);
@@ -319,17 +357,20 @@ fn ingest(
 }
 
 fn collect(which: CollectKind) -> Result<()> {
-    use urchin_collectors::{claude as claude_col, git as git_col, shell as shell_col};
+    use std::sync::Arc;
+    use urchin_collectors::{
+        claude as claude_col, copilot as copilot_col, gemini as gemini_col,
+        git as git_col, shell as shell_col, run_all,
+    };
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
-    let cfg = Config::load();
-    let identity = Identity::resolve();
-    let journal = Journal::new(cfg.journal_path.clone());
+    let cfg      = Config::load();
+    let identity = Arc::new(Identity::resolve());
+    let journal  = Arc::new(Journal::new(cfg.journal_path.clone()));
 
     match which {
         CollectKind::Shell => {
-            let opts = shell_col::ShellOpts::defaults();
-            let n = shell_col::collect(&journal, &identity, &opts)?;
+            let n = shell_col::collect(&journal, &identity, &shell_col::ShellOpts::defaults())?;
             println!("shell: {} new events", n);
         }
         CollectKind::Git { repo } => {
@@ -352,27 +393,24 @@ fn collect(which: CollectKind) -> Result<()> {
             println!("git total: {}", total);
         }
         CollectKind::Claude => {
-            let opts = claude_col::ClaudeOpts::defaults();
-            let n = claude_col::collect(&journal, &identity, &opts)?;
-            println!("Collected {} new events from Claude CLI history.", n);
+            let n = claude_col::collect(&journal, &identity, &claude_col::ClaudeOpts::defaults())?;
+            println!("claude: {} new events", n);
+        }
+        CollectKind::Copilot => {
+            let n = copilot_col::collect(&journal, &identity, &copilot_col::CopilotOpts::defaults())?;
+            println!("copilot: {} new events", n);
+        }
+        CollectKind::Gemini => {
+            let n = gemini_col::collect(&journal, &identity, &gemini_col::GeminiOpts::defaults())?;
+            println!("gemini: {} new events", n);
         }
         CollectKind::All => {
-            let opts = shell_col::ShellOpts::defaults();
-            match shell_col::collect(&journal, &identity, &opts) {
-                Ok(n)  => println!("shell: {} new events", n),
-                Err(e) => eprintln!("shell skipped: {}", e),
-            }
-            for r in &resolve_repos(vec![]) {
-                let opts = git_col::GitOpts::defaults_for(r.clone());
-                match git_col::collect_repo(&journal, &identity, &opts) {
-                    Ok(n)  => println!("git {}: {} new commits", r.display(), n),
-                    Err(e) => eprintln!("git {} skipped: {}", r.display(), e),
+            let repos = resolve_repos(vec![]);
+            for r in run_all(&journal, &identity, &repos) {
+                match r.count {
+                    Ok(n)  => println!("{}: {} new events", r.name, n),
+                    Err(e) => eprintln!("{} skipped: {}", r.name, e),
                 }
-            }
-            let opts = claude_col::ClaudeOpts::defaults();
-            match claude_col::collect(&journal, &identity, &opts) {
-                Ok(n)  => println!("claude: {} new events", n),
-                Err(e) => eprintln!("claude skipped: {}", e),
             }
         }
     }
@@ -490,6 +528,81 @@ fn config_cmd(action: ConfigAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn recent(n: usize, source: Option<String>, hours: f64) -> Result<()> {
+    use urchin_core::{config::Config, journal::Journal, query};
+
+    let cfg     = Config::load();
+    let journal = Journal::new(cfg.journal_path);
+    let events  = journal.read_all()?;
+    let hits    = query::recent(&events, hours, source.as_deref(), n);
+
+    if hits.is_empty() {
+        println!("(no events in window)");
+    } else {
+        for e in hits {
+            let ts = e.timestamp.format("%Y-%m-%dT%H:%M:%SZ");
+            println!("{}  {}  {}", ts, e.source, truncate_line(&e.content, 100));
+        }
+    }
+    Ok(())
+}
+
+fn query(text: String, source: Option<String>, limit: usize, hours: f64) -> Result<()> {
+    use urchin_core::{config::Config, journal::Journal, query};
+
+    let cfg     = Config::load();
+    let journal = Journal::new(cfg.journal_path);
+    let events  = journal.read_all()?;
+    let mut hits = query::search_content(&events, &text, hours, limit);
+
+    // Post-filter by source if given.
+    if let Some(ref src) = source {
+        hits.retain(|e| e.source == *src);
+    }
+
+    if hits.is_empty() {
+        println!("(no matches)");
+    } else {
+        println!("{} match(es) for {:?}:", hits.len(), text);
+        for e in hits {
+            let ts = e.timestamp.format("%Y-%m-%dT%H:%M:%SZ");
+            println!("{}  {}  {}", ts, e.source, truncate_line(&e.content, 100));
+        }
+    }
+    Ok(())
+}
+
+fn vault_cmd(action: VaultAction) -> Result<()> {
+    use chrono::NaiveDate;
+    use urchin_core::{config::Config, journal::Journal};
+    use urchin_vault::projection;
+
+    let cfg     = Config::load();
+    let journal = Journal::new(cfg.journal_path);
+
+    match action {
+        VaultAction::Project { date } => {
+            let d = match date {
+                Some(s) => NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                    .map_err(|_| anyhow::anyhow!("invalid date format, expected YYYY-MM-DD"))?,
+                None    => chrono::Local::now().naive_local().date(),
+            };
+            projection::project_daily(&journal, &cfg.vault_root, d)?;
+            println!("projected {}", d.format("%Y-%m-%d"));
+        }
+    }
+    Ok(())
+}
+
+fn truncate_line(s: &str, max: usize) -> String {
+    let first = s.lines().next().unwrap_or("").trim();
+    if first.len() > max {
+        format!("{}…", &first[..max])
+    } else {
+        first.to_string()
+    }
 }
 
 fn resolve_repos(from_args: Vec<String>) -> Vec<std::path::PathBuf> {
