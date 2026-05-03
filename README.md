@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
 ![Status](https://img.shields.io/badge/status-v0.2.0--dev-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
-![Tests](https://img.shields.io/badge/tests-56%20passing-success)
+![Tests](https://img.shields.io/badge/tests-74%20passing-success)
 
 </div>
 
@@ -69,16 +69,12 @@ Collectors are passive readers — they never write back to source tools. The jo
 | Claude collector | ✅ shipped | `~/.claude/projects/` JSONL transcripts |
 | Copilot collector | ✅ shipped | `~/.copilot/command-history-state.json`, content-addressed checkpoint |
 | Gemini collector | ✅ shipped | `~/.gemini/tmp/*/chats/*.jsonl`, partial-offset checkpoint |
-| Vault projection | ✅ shipped | `urchin vault project` — writes urchin block into `~/brain/daily/YYYY-MM-DD.md` |
-| CLI: `recent` / `query` | ✅ shipped | `urchin recent --n 20`, `urchin query <text>` |
-| Cloud sync | ✅ shipped | `urchin sync` — pushes journal to orinadus.com |
-| Codex collector | 🔲 next | `~/.codex/state_5.sqlite`, threads table |
-| OpenCode collector | 🔲 next | `~/.local/share/opencode/opencode.db`, message table |
-| Local model collector | 🔲 next | generic JSONL drop file — works with Ollama, llama.cpp, anything |
-| Collector registry | 🔲 next | trait-based, `is_available()` self-discovery, one-line registration |
-| Remote sync bridge | 🔲 planned | pull/sync across WSL / VPS |
+| Collector trait + registry | ✅ shipped | object-safe `Collector` trait, `CollectorRegistry::with_defaults()`, `is_available()` self-discovery |
+| Codex collector | ✅ shipped | `~/.codex/state_5.sqlite`, threads table, `first_user_message` intent capture |
+| OpenCode collector | ✅ shipped | `~/.local/share/opencode/opencode.db`, message JOIN session, user-role filter |
+| Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file — Ollama, llama.cpp, any harness |
 
-**56 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (10), `urchin-collectors` (34), `urchin-vault` (3).
+**74 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (10), `urchin-collectors` (52), `urchin-vault` (3).
 
 ---
 
@@ -106,11 +102,26 @@ cargo build                        # → target/debug/urchin
 | `urchin collect claude` | run Claude collector |
 | `urchin collect copilot` | run Copilot collector |
 | `urchin collect gemini` | run Gemini collector |
+| `urchin collect codex` | run Codex CLI collector |
+| `urchin collect opencode` | run OpenCode collector |
+| `urchin collect local-model` | run local model drop-file collector |
 | `urchin collect all` | run every collector |
 | `urchin recent [--n N] [--source S]` | show last N events |
 | `urchin query <text>` | keyword search across journal |
 | `urchin vault project [--date YYYY-MM-DD]` | project today's events into brain daily note |
 | `urchin sync` | push journal to cloud |
+
+### Local model drop file
+
+Any local inference harness (Ollama, LM Studio, llama.cpp, etc.) can push events to Urchin by
+appending newline-delimited JSON to `~/.local/share/urchin/local-model.jsonl`:
+
+```json
+{"prompt":"fix the memory leak","model":"ollama:mistral","ts":"2026-05-01T10:00:00Z","workspace":"/opt/project"}
+```
+
+Fields: `prompt` (required), `model` (optional), `ts` (RFC3339, optional), `workspace` (optional).
+Urchin reads from this file; it never writes to it. The collector is a no-op when the file doesn't exist.
 
 ---
 
@@ -121,7 +132,7 @@ crates/
   urchin-core        zero I/O: Event, Journal, Identity, Config
   urchin-intake      axum: POST /ingest, GET /health (127.0.0.1:18799)
   urchin-mcp         MCP over stdio: 5 tools, JSON-RPC 2.0
-  urchin-collectors  shell, git, claude, copilot, gemini — all live
+  urchin-collectors  shell, git, claude, copilot, gemini, codex, opencode, local-model — all live
   urchin-vault       vault projection: writes marker blocks into ~/brain
   urchin-sdk         shared types for external integrations
   urchin-cli         single binary: target/debug/urchin
