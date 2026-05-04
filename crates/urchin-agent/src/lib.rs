@@ -12,6 +12,7 @@
 pub mod context;
 pub mod reasoner;
 pub mod reflect;
+pub mod semantic;
 
 use anyhow::Result;
 use urchin_core::{config::Config, identity::Identity, journal::Journal};

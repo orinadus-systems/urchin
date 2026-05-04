@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_returns_nine_tools() {
+    fn tools_list_returns_ten_tools() {
         let (ctx, _tmp) = test_ctx();
         let req = json!({
             "jsonrpc": "2.0",
@@ -216,7 +216,7 @@ mod tests {
         });
         let resp = handle(&req, &ctx).unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 9);
+        assert_eq!(tools.len(), 10);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"urchin_status"));
         assert!(names.contains(&"urchin_ingest"));
@@ -226,6 +226,8 @@ mod tests {
         assert!(names.contains(&"urchin_workspace_context"));
         assert!(names.contains(&"urchin_remember"));
         assert!(names.contains(&"urchin_ephemeral"));
+        assert!(names.contains(&"urchin_agent_reflect"));
+        assert!(names.contains(&"urchin_semantic_search"));
     }
 
     #[test]
