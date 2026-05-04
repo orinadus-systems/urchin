@@ -95,7 +95,7 @@ impl Journal {
                 }
             }
             if read_from == 0 {
-                start = 0;
+                // start remains 0 (read from beginning of file)
                 break;
             }
             pos = read_from;
