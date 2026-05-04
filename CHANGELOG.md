@@ -7,6 +7,61 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.4] — 2026-05-04
+
+### Added
+
+**Cross-process ephemeral mode (`urchin-core`)**
+- `EphemeralMode` struct in `crates/urchin-core/src/ephemeral.rs`
+- File-backed flag at `~/.local/share/urchin/ephemeral.lock`
+- `activate()` — writes flag file; `deactivate()` — removes it (idempotent); `is_active()` — `path.exists()`
+- `Default` impl resolves to standard data dir — callers need no config
+- 3 unit tests: inactive by default, activate/deactivate roundtrip, deactivate idempotent
+
+**Intake auth + ephemeral awareness (`urchin-intake`)**
+- `AppState` gains `token: Option<String>` and `ephemeral: EphemeralMode`
+- `POST /ingest` now enforces Bearer token auth (401 on mismatch when token configured)
+- `POST /ingest` returns 202 + silently drops event when `ephemeral.lock` is present
+- `POST /ingest` rejects blank `content` or `source` with 400 Bad Request
+- `GET /health` adds `"ephemeral": bool`; journal path removed from response (was an info leak)
+- 8 test cases covering all response codes
+
+**Config `intake_token` field (`urchin-core`)**
+- `Config` struct gains `intake_token: Option<String>` (default `None`)
+- TOML key: `intake_token`; env var: `URCHIN_INTAKE_TOKEN`
+- Env var overrides config file (same precedence pattern as all other fields)
+
+**MCP ephemeral file flag (`urchin-mcp`)**
+- `urchin_ephemeral {action:"start"}` now calls `EphemeralMode::default().activate()`
+- `urchin_ephemeral {action:"end"}` now calls `EphemeralMode::default().deactivate()`
+- `urchin_ephemeral {action:"status"}` reports active if in-process bool OR flag file is present
+- Both the in-process `AtomicBool` (fast gate for MCP tool calls) and the file flag are set/cleared together
+
+**Documentation**
+- `docs/ARCHITECTURE.md` — crate map, process topology, Journal/EphemeralMode/Config internals, desktop integration
+- `docs/API_REFERENCE.md` — `POST /ingest` full schema, all response codes, JSONL format, SDK usage
+
+### Changed
+
+**Journal write safety (`urchin-core`)**
+- `Journal` struct gains `write_lock: std::sync::Mutex<()>`
+- `append()` acquires the lock before `OpenOptions::open + writeln!` — prevents intra-process line interleaving
+- `Journal::new()` initialises the lock; external API unchanged
+
+### Test counts
+
+| Crate               | Tests         |
+|---------------------|---------------|
+| `urchin-core`       | 10 (+3 ephemeral) |
+| `urchin-intake`     | 8 (+6)        |
+| `urchin-mcp`        | 20 (+3)       |
+| `urchin-collectors` | 52            |
+| `urchin-vault`      | 3             |
+| `urchin-agent`      | 15            |
+| **Total**           | **108** (+12) |
+
+---
+
 ## [0.3.1] — 2025-07-05
 
 ### Added
