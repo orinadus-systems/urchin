@@ -65,6 +65,46 @@ impl Journal {
         Ok(events)
     }
 
+    /// Read the last `n` events without loading the whole file.
+    pub fn read_tail(&self, n: usize) -> Result<Vec<Event>> {
+        if n == 0 || !self.path.exists() {
+            return Ok(vec![]);
+        }
+        let mut file = std::fs::File::open(&self.path)?;
+        let file_len = file.seek(SeekFrom::End(0))?;
+        if file_len == 0 {
+            return Ok(vec![]);
+        }
+        const CHUNK: u64 = 65_536;
+        let mut newlines: usize = 0;
+        let mut start: u64 = 0;
+        let mut pos: u64 = file_len;
+        'scan: loop {
+            let read_from = pos.saturating_sub(CHUNK);
+            let read_len = (pos - read_from) as usize;
+            file.seek(SeekFrom::Start(read_from))?;
+            let mut buf = vec![0u8; read_len];
+            file.read_exact(&mut buf)?;
+            for i in (0..read_len).rev() {
+                if buf[i] == b'\n' {
+                    newlines += 1;
+                    if newlines > n {
+                        start = read_from + i as u64 + 1;
+                        break 'scan;
+                    }
+                }
+            }
+            if read_from == 0 {
+                start = 0;
+                break;
+            }
+            pos = read_from;
+        }
+        let (events, _) = self.read_from_byte_offset(start)?;
+        let skip = events.len().saturating_sub(n);
+        Ok(events.into_iter().skip(skip).collect())
+    }
+
     /// Read events starting from a byte offset in the file.
     /// Returns (events, new_offset) where new_offset is the file position after reading.
     /// Caller should persist new_offset so the next call skips already-read events.
@@ -88,42 +128,37 @@ impl Journal {
         Ok((events, file_len))
     }
 
-    /// Fast stats without fully deserializing every event.
+    /// Fast stats: raw byte scan for line count, tail seek for last event.
     pub fn stats(&self) -> Result<JournalStats> {
         if !self.path.exists() {
-            return Ok(JournalStats {
-                event_count: 0,
-                file_size_bytes: 0,
-                last_event: None,
-            });
+            return Ok(JournalStats { event_count: 0, file_size_bytes: 0, last_event: None });
         }
-
         let file_size_bytes = std::fs::metadata(&self.path)?.len();
-        let file = std::fs::File::open(&self.path)?;
-        let reader = BufReader::new(file);
-
-        let mut event_count = 0usize;
-        let mut last_line = String::new();
-
-        for line in reader.lines() {
-            let line = line?;
-            if !line.trim().is_empty() {
-                event_count += 1;
-                last_line = line;
+        if file_size_bytes == 0 {
+            return Ok(JournalStats { event_count: 0, file_size_bytes: 0, last_event: None });
+        }
+        let mut file = std::fs::File::open(&self.path)?;
+        // Count newlines via raw byte scan — no per-line alloc, no JSON parse.
+        let mut event_count: usize = 0;
+        let mut chunk = vec![0u8; 65_536];
+        loop {
+            let n = file.read(&mut chunk)?;
+            if n == 0 { break; }
+            for &b in &chunk[..n] {
+                if b == b'\n' { event_count += 1; }
             }
         }
-
-        let last_event = if !last_line.is_empty() {
-            serde_json::from_str(&last_line).ok()
-        } else {
-            None
-        };
-
-        Ok(JournalStats {
-            event_count,
-            file_size_bytes,
-            last_event,
-        })
+        // Parse only the last ~4KB to extract the most recent event.
+        let tail_start = file_size_bytes.saturating_sub(4096);
+        file.seek(SeekFrom::Start(tail_start))?;
+        let mut tail = String::new();
+        file.read_to_string(&mut tail)?;
+        let last_event = tail
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .and_then(|l| serde_json::from_str(l).ok());
+        Ok(JournalStats { event_count, file_size_bytes, last_event })
     }
 }
 
@@ -182,5 +217,30 @@ mod tests {
         let journal = Journal::new(PathBuf::from("/nonexistent/path/events.jsonl"));
         let events = journal.read_all().unwrap();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn read_tail_returns_last_n() {
+        let tmp = NamedTempFile::new().unwrap();
+        let journal = Journal::new(tmp.path().to_path_buf());
+        for i in 0..10 {
+            journal.append(&Event::new("cli", EventKind::Conversation, format!("event {}", i))).unwrap();
+        }
+        let tail = journal.read_tail(3).unwrap();
+        assert_eq!(tail.len(), 3);
+        assert_eq!(tail[0].content, "event 7");
+        assert_eq!(tail[1].content, "event 8");
+        assert_eq!(tail[2].content, "event 9");
+    }
+
+    #[test]
+    fn read_tail_fewer_events_than_n() {
+        let tmp = NamedTempFile::new().unwrap();
+        let journal = Journal::new(tmp.path().to_path_buf());
+        for i in 0..3 {
+            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+        }
+        let tail = journal.read_tail(10).unwrap();
+        assert_eq!(tail.len(), 3);
     }
 }
