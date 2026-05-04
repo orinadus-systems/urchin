@@ -71,8 +71,58 @@ impl UrchinClient {
         Ok(body["id"].as_str().unwrap_or("ok").to_string())
     }
 
+    /// Pull events from the remote cloud hub since `after_cursor`.
+    ///
+    /// `after_cursor` is an ISO 8601 timestamp string (exclusive lower bound).
+    /// Pass `None` to fetch from the beginning.
+    /// Returns `PullResponse { events, next_cursor }`.
+    pub async fn pull(&self, after_cursor: Option<&str>, limit: usize) -> Result<PullResponse> {
+        let mut url = format!("{}/api/urchin-sync/events?limit={}", self.base_url, limit);
+        if let Some(cursor) = after_cursor {
+            // ISO 8601 timestamps contain ':' and '+' which need encoding.
+            let encoded = cursor.replace('+', "%2B").replace(':', "%3A");
+            url.push_str(&format!("&after={}", encoded));
+        }
+
+        let mut req = self.http.get(&url);
+        if let Some(token) = &self.token {
+            req = req.bearer_auth(token);
+        }
+        let resp = req
+            .send()
+            .await
+            .context("failed to reach cloud hub")?;
+
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await
+            .context("non-JSON response from cloud hub")?;
+
+        if !status.is_success() {
+            return Err(anyhow::Error::new(HttpError {
+                status: status.as_u16(),
+                body,
+            }));
+        }
+
+        let events: Vec<Event> = serde_json::from_value(
+            body["events"].clone()
+        ).context("failed to deserialize events array")?;
+
+        let next_cursor = body["next_cursor"].as_str().map(|s| s.to_string());
+
+        Ok(PullResponse { events, next_cursor })
+    }
+
     /// Return a fluent builder pre-wired to this client.
     pub fn builder(&self) -> crate::builder::EventBuilder<'_> {
         crate::builder::EventBuilder::new(self)
     }
+}
+
+/// Response from the cloud pull endpoint.
+#[derive(Debug)]
+pub struct PullResponse {
+    pub events: Vec<Event>,
+    /// ISO 8601 timestamp of the last returned event; `None` if no more pages.
+    pub next_cursor: Option<String>,
 }

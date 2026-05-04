@@ -18,6 +18,12 @@ enum Commands {
     Doctor,
     /// Run a one-shot cloud sync pass and exit
     Sync,
+    /// Pull events from the cloud hub into the local journal
+    Pull {
+        /// Max events per page (default: 100, max: 500)
+        #[arg(short, long, default_value = "100")]
+        limit: usize,
+    },
     /// Ingest an event from the command line
     Ingest {
         #[arg(short, long)]
@@ -168,6 +174,7 @@ async fn main() -> Result<()> {
         Commands::Vault  { action } => vault_cmd(action),
         Commands::Config { action } => config_cmd(action),
         Commands::Sync => sync().await,
+        Commands::Pull { limit } => pull(limit).await,
         Commands::Agent { action } => agent_cmd(action),
     }
 }
@@ -544,6 +551,88 @@ async fn sync() -> Result<()> {
     } else {
         println!("Partial: {}/{} events pushed. Checkpoint not advanced — will retry on next sync.", pushed, total);
         std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+async fn pull(page_limit: usize) -> Result<()> {
+    use urchin_core::{config::Config, journal::Journal};
+    use std::collections::HashSet;
+
+    let cfg = Config::load();
+
+    let Some(ref cloud_url) = cfg.cloud_url else {
+        eprintln!("No cloud_url configured. Run: urchin config set cloud_url <url>");
+        return Ok(());
+    };
+
+    // Build the client
+    let mut client = urchin_sdk::UrchinClient::new(cloud_url.as_str());
+    if let Some(ref token) = cfg.cloud_token {
+        client = client.with_token(token.as_str());
+    }
+
+    // Load cursor checkpoint (last pulled timestamp)
+    let cursor_path = cfg.cache_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("cloud-pull.cursor");
+
+    let start_cursor: Option<String> = std::fs::read_to_string(&cursor_path).ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    // Load existing event IDs (as strings) for idempotent merge
+    let journal = Journal::new(cfg.journal_path.clone());
+    let existing_ids: HashSet<String> = tokio::task::spawn_blocking({
+        let j = journal.path().clone();
+        move || -> HashSet<String> {
+            Journal::new(j).read_all()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|e| e.id.to_string())
+                .collect()
+        }
+    }).await?;
+
+    let mut cursor = start_cursor;
+    let mut total_pulled = 0usize;
+    let mut last_cursor = cursor.clone();
+
+    loop {
+        let resp = client.pull(cursor.as_deref(), page_limit).await?;
+
+        let mut new_count = 0;
+        for event in &resp.events {
+            if existing_ids.contains(&event.id.to_string()) {
+                continue;
+            }
+            journal.append(event)?;
+            new_count += 1;
+        }
+        total_pulled += new_count;
+
+        if let Some(ref nc) = resp.next_cursor {
+            last_cursor = Some(nc.clone());
+        }
+
+        cursor = resp.next_cursor.clone();
+        if cursor.is_none() {
+            // All pages drained
+            break;
+        }
+    }
+
+    // Advance checkpoint only after full drain
+    if let Some(ref lc) = last_cursor {
+        std::fs::write(&cursor_path, lc.as_bytes())?;
+    }
+
+    if total_pulled == 0 {
+        println!("Already up to date.");
+    } else {
+        println!("Pulled {} new events.", total_pulled);
     }
 
     Ok(())
