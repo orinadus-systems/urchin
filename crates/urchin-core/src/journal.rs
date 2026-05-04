@@ -105,6 +105,17 @@ impl Journal {
         Ok(events.into_iter().skip(skip).collect())
     }
 
+    /// Read a window of events at newest-first positions [offset, offset+limit).
+    /// Bounded read: only the last `offset + limit` events are scanned from EOF.
+    pub fn read_window(&self, offset: usize, limit: usize) -> Result<Vec<Event>> {
+        if limit == 0 {
+            return Ok(vec![]);
+        }
+        let mut events = self.read_tail(offset + limit)?;
+        events.reverse();
+        Ok(events.into_iter().skip(offset).take(limit).collect())
+    }
+
     /// Read events starting from a byte offset in the file.
     /// Returns (events, new_offset) where new_offset is the file position after reading.
     /// Caller should persist new_offset so the next call skips already-read events.
@@ -242,5 +253,44 @@ mod tests {
         }
         let tail = journal.read_tail(10).unwrap();
         assert_eq!(tail.len(), 3);
+    }
+
+    #[test]
+    fn read_window_first_page_is_newest_first() {
+        let tmp = NamedTempFile::new().unwrap();
+        let journal = Journal::new(tmp.path().to_path_buf());
+        for i in 0..10 {
+            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+        }
+        let window = journal.read_window(0, 3).unwrap();
+        assert_eq!(window.len(), 3);
+        assert_eq!(window[0].content, "e9");
+        assert_eq!(window[1].content, "e8");
+        assert_eq!(window[2].content, "e7");
+    }
+
+    #[test]
+    fn read_window_offset_skips_newest() {
+        let tmp = NamedTempFile::new().unwrap();
+        let journal = Journal::new(tmp.path().to_path_buf());
+        for i in 0..10 {
+            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+        }
+        let window = journal.read_window(3, 3).unwrap();
+        assert_eq!(window.len(), 3);
+        assert_eq!(window[0].content, "e6");
+        assert_eq!(window[1].content, "e5");
+        assert_eq!(window[2].content, "e4");
+    }
+
+    #[test]
+    fn read_window_past_end_returns_empty() {
+        let tmp = NamedTempFile::new().unwrap();
+        let journal = Journal::new(tmp.path().to_path_buf());
+        for i in 0..3 {
+            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+        }
+        let window = journal.read_window(10, 5).unwrap();
+        assert!(window.is_empty());
     }
 }

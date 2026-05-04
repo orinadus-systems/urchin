@@ -1,6 +1,6 @@
 [package]
 name    = "urchin-agent"
-version = "0.3.2"
+version = "0.3.4"
 edition = "2021"
 description = "ReAct scaffold: load journal context, reason, emit agent events back to the substrate."
 
