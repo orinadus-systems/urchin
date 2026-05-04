@@ -10,6 +10,8 @@ pub struct Config {
     pub remote_host: Option<String>,
     pub cloud_url: Option<String>,
     pub cloud_token: Option<String>,
+    /// Bearer token required on POST /ingest. If None, auth is disabled (loopback-only default).
+    pub intake_token: Option<String>,
 }
 
 /// The on-disk TOML representation — all fields optional so partial files work.
@@ -22,6 +24,7 @@ struct FileConfig {
     remote_host: Option<String>,
     cloud_url: Option<String>,
     cloud_token: Option<String>,
+    intake_token: Option<String>,
 }
 
 impl Default for Config {
@@ -40,6 +43,7 @@ impl Default for Config {
             remote_host: None,
             cloud_url: None,
             cloud_token: None,
+            intake_token: None,
         }
     }
 }
@@ -67,6 +71,7 @@ impl Config {
                     if let Some(v) = file_cfg.remote_host   { cfg.remote_host   = Some(v); }
                     if let Some(v) = file_cfg.cloud_url     { cfg.cloud_url     = Some(v); }
                     if let Some(v) = file_cfg.cloud_token   { cfg.cloud_token   = Some(v); }
+                    if let Some(v) = file_cfg.intake_token  { cfg.intake_token  = Some(v); }
                 }
             }
         }
@@ -77,8 +82,9 @@ impl Config {
         if let Ok(v) = std::env::var("URCHIN_INTAKE_PORT")  {
             cfg.intake_port = v.parse().unwrap_or(18799);
         }
-        if let Ok(v) = std::env::var("URCHIN_CLOUD_URL")   { cfg.cloud_url   = Some(v); }
-        if let Ok(v) = std::env::var("URCHIN_CLOUD_TOKEN") { cfg.cloud_token = Some(v); }
+        if let Ok(v) = std::env::var("URCHIN_CLOUD_URL")    { cfg.cloud_url    = Some(v); }
+        if let Ok(v) = std::env::var("URCHIN_CLOUD_TOKEN")  { cfg.cloud_token  = Some(v); }
+        if let Ok(v) = std::env::var("URCHIN_INTAKE_TOKEN") { cfg.intake_token = Some(v); }
 
         cfg
     }

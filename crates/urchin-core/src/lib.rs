@@ -7,3 +7,4 @@ pub mod journal;
 pub mod config;
 pub mod governance;
 pub mod query;
+pub mod ephemeral;

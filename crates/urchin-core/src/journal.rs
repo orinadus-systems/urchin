@@ -8,6 +8,10 @@ use crate::event::Event;
 
 pub struct Journal {
     path: PathBuf,
+    /// Serialises concurrent calls to append() within the same process.
+    /// Each open+write pair is atomic on Linux for small payloads, but the
+    /// lock prevents two threads from interleaving their JSON lines.
+    write_lock: std::sync::Mutex<()>,
 }
 
 pub struct JournalStats {
@@ -18,7 +22,7 @@ pub struct JournalStats {
 
 impl Journal {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self { path, write_lock: std::sync::Mutex::new(()) }
     }
 
     pub fn default_path() -> PathBuf {
@@ -38,6 +42,8 @@ impl Journal {
     }
 
     pub fn append(&self, event: &Event) -> Result<()> {
+        let _guard = self.write_lock.lock()
+            .map_err(|_| anyhow::anyhow!("journal write_lock poisoned"))?;
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
         }

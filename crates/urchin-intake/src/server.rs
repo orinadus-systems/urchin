@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Json,
     routing::{get, post},
     Router,
@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use urchin_core::{
     config::Config,
+    ephemeral::EphemeralMode,
     event::Event,
     identity::Identity,
     journal::Journal,
@@ -24,14 +25,20 @@ pub struct AppState {
     pub journal: Arc<Journal>,
     pub journal_path: PathBuf,
     pub identity: Arc<Identity>,
+    /// Required Bearer token. If None, auth is disabled (safe because server binds loopback-only).
+    pub token: Option<String>,
+    /// Cross-process ephemeral mode flag.
+    pub ephemeral: EphemeralMode,
 }
 
 impl AppState {
     pub fn from_config(cfg: &Config) -> Self {
         Self {
-            journal: Arc::new(Journal::new(cfg.journal_path.clone())),
+            journal:      Arc::new(Journal::new(cfg.journal_path.clone())),
             journal_path: cfg.journal_path.clone(),
-            identity: Arc::new(Identity::resolve()),
+            identity:     Arc::new(Identity::resolve()),
+            token:        cfg.intake_token.clone(),
+            ephemeral:    EphemeralMode::default(),
         }
     }
 }
@@ -76,31 +83,58 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
         Err(_) => 0,
     };
     Json(json!({
-        "status":  "ok",
-        "events":  count,
-        "journal": state.journal_path.display().to_string(),
+        "status":    "ok",
+        "events":    count,
+        "ephemeral": state.ephemeral.is_active(),
     }))
 }
 
 /// Accept a fully-formed Event from the SDK or any caller.
-/// The event's id and timestamp are preserved exactly — the SDK owns creation identity.
+///
+/// - Returns 401 if a token is configured and the Bearer header is wrong/missing.
+/// - Returns 202 (drops silently) if ephemeral mode is active.
+/// - Returns 400 if `content` or `source` are blank.
+/// - Returns 200 on successful write.
 async fn ingest(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(event): Json<Event>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let id = event.id;
-
-    if let Err(e) = state.journal.append(&event) {
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e.to_string()})),
-        ));
+) -> (StatusCode, Json<Value>) {
+    // ── Bearer auth ───────────────────────────────────────────────────────────
+    if let Some(expected) = &state.token {
+        let authorized = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .map(|t| t == expected.as_str())
+            .unwrap_or(false);
+        if !authorized {
+            return (StatusCode::UNAUTHORIZED, Json(json!({"error": "unauthorized"})));
+        }
     }
 
-    Ok(Json(json!({
-        "id":     id,
-        "status": "ok",
-    })))
+    // ── Ephemeral mode — accept but drop ─────────────────────────────────────
+    if state.ephemeral.is_active() {
+        return (
+            StatusCode::ACCEPTED,
+            Json(json!({"id": event.id, "status": "dropped", "reason": "ephemeral"})),
+        );
+    }
+
+    // ── Payload validation ────────────────────────────────────────────────────
+    if event.content.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "content must not be empty"})));
+    }
+    if event.source.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "source must not be empty"})));
+    }
+
+    // ── Write ─────────────────────────────────────────────────────────────────
+    let id = event.id;
+    match state.journal.append(&event) {
+        Ok(()) => (StatusCode::OK, Json(json!({"id": id, "status": "ok"}))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))),
+    }
 }
 
 #[cfg(test)]
@@ -108,18 +142,23 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, TempDir};
     use tower::ServiceExt;
 
-    fn test_state(path: PathBuf) -> AppState {
+    fn test_state(journal_path: PathBuf, ephemeral_dir: &TempDir) -> AppState {
         AppState {
-            journal:      Arc::new(Journal::new(path.clone())),
-            journal_path: path,
-            identity:     Arc::new(Identity {
-                account: "test".into(),
-                device:  "test".into(),
-            }),
+            journal:      Arc::new(Journal::new(journal_path.clone())),
+            journal_path,
+            identity:     Arc::new(Identity { account: "test".into(), device: "test".into() }),
+            token:        None,
+            ephemeral:    EphemeralMode::new(&ephemeral_dir.path().to_path_buf()),
         }
+    }
+
+    fn test_state_with_token(journal_path: PathBuf, ephemeral_dir: &TempDir, token: &str) -> AppState {
+        let mut state = test_state(journal_path, ephemeral_dir);
+        state.token = Some(token.to_string());
+        state
     }
 
     async fn json_body(resp: axum::response::Response) -> Value {
@@ -127,7 +166,6 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    // Minimal valid Event JSON — id and timestamp are required by the Event struct.
     const EVENT_JSON: &str = r#"{
         "id": "56816532-adb7-4000-8a0f-1dda8408aab5",
         "timestamp": "2026-04-28T12:00:00Z",
@@ -138,8 +176,9 @@ mod tests {
 
     #[tokio::test]
     async fn health_reflects_ingested_events() {
-        let tmp = NamedTempFile::new().unwrap();
-        let state = test_state(tmp.path().to_path_buf());
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
         let app = router(state);
 
         let resp = app.clone().oneshot(
@@ -171,11 +210,11 @@ mod tests {
 
     #[tokio::test]
     async fn ingest_rejects_missing_required_fields() {
-        let tmp = NamedTempFile::new().unwrap();
-        let state = test_state(tmp.path().to_path_buf());
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
         let app = router(state);
 
-        // Missing id, timestamp — not a valid Event
         let body = r#"{"source":"test","content":"oops"}"#;
         let resp = app.oneshot(
             Request::builder()
@@ -188,4 +227,147 @@ mod tests {
 
         assert!(resp.status().is_client_error());
     }
+
+    #[tokio::test]
+    async fn ingest_rejects_request_without_bearer_when_token_set() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state_with_token(tmp_j.path().to_path_buf(), &tmp_e, "secret");
+        let app = router(state);
+
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(EVENT_JSON))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn ingest_rejects_wrong_bearer() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state_with_token(tmp_j.path().to_path_buf(), &tmp_e, "secret");
+        let app = router(state);
+
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer wrong-token")
+                .body(Body::from(EVENT_JSON))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn ingest_accepts_correct_bearer() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state_with_token(tmp_j.path().to_path_buf(), &tmp_e, "secret");
+        let app = router(state);
+
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest")
+                .header("content-type", "application/json")
+                .header("authorization", "Bearer secret")
+                .body(Body::from(EVENT_JSON))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = json_body(resp).await;
+        assert_eq!(body["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn ingest_rejects_empty_content() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
+        let app = router(state);
+
+        let body = r#"{
+            "id": "56816532-adb7-4000-8a0f-1dda8408aab5",
+            "timestamp": "2026-04-28T12:00:00Z",
+            "source": "test",
+            "kind": "conversation",
+            "content": "   "
+        }"#;
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn ingest_rejects_empty_source() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
+        let app = router(state);
+
+        let body = r#"{
+            "id": "56816532-adb7-4000-8a0f-1dda8408aab5",
+            "timestamp": "2026-04-28T12:00:00Z",
+            "source": "",
+            "kind": "conversation",
+            "content": "hello"
+        }"#;
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn ingest_drops_silently_in_ephemeral_mode() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let mut state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
+        state.ephemeral.activate().unwrap();
+        let app = router(state);
+
+        let resp = app.clone().oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest")
+                .header("content-type", "application/json")
+                .body(Body::from(EVENT_JSON))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
+        let body = json_body(resp).await;
+        assert_eq!(body["status"], "dropped");
+
+        // Nothing written to journal
+        let resp = app.oneshot(
+            Request::builder().uri("/health").body(Body::empty()).unwrap()
+        ).await.unwrap();
+        let health = json_body(resp).await;
+        assert_eq!(health["events"], 0);
+    }
 }
+

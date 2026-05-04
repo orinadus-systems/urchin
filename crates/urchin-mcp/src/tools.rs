@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use urchin_core::{
     config::Config,
+    ephemeral::EphemeralMode,
     event::{Actor, Event, EventKind},
     identity::Identity,
     journal::Journal,
@@ -306,19 +307,27 @@ fn remember(args: &Value, ctx: &ToolContext) -> Result<String> {
 
 fn ephemeral(args: &Value, ctx: &ToolContext) -> Result<String> {
     let action = required_str(args, "action")?;
+    let file_mode = EphemeralMode::default();
     match action.as_str() {
         "start" => {
             ctx.ephemeral.store(true, Ordering::Relaxed);
             ctx.suppressed.store(0, Ordering::Relaxed);
+            // Persist flag cross-process so urchin-intake also suppresses writes.
+            if let Err(e) = file_mode.activate() {
+                tracing::warn!("ephemeral: could not write flag file: {}", e);
+            }
             Ok("Ephemeral mode ACTIVE — no events will be written until you call end.".to_string())
         }
         "end" => {
             ctx.ephemeral.store(false, Ordering::Relaxed);
             let n = ctx.suppressed.swap(0, Ordering::Relaxed);
+            if let Err(e) = file_mode.deactivate() {
+                tracing::warn!("ephemeral: could not remove flag file: {}", e);
+            }
             Ok(format!("Ephemeral mode ended. {} event(s) were suppressed and are permanently gone.", n))
         }
         "status" => {
-            let active = ctx.ephemeral.load(Ordering::Relaxed);
+            let active = ctx.ephemeral.load(Ordering::Relaxed) || file_mode.is_active();
             let n = ctx.suppressed.load(Ordering::Relaxed);
             if active {
                 Ok(format!("Ephemeral mode: ACTIVE ({} event(s) suppressed so far)", n))
