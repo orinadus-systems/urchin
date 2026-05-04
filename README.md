@@ -24,33 +24,62 @@ Claude, Copilot, Gemini, Codex, OpenCode, the shell, git — each tool has its o
 
 ```mermaid
 flowchart LR
-    SH[shell]        --> J
-    GIT[git]         --> J
-    CL[claude]       --> J
-    CP[copilot]      --> J
-    GM[gemini]       --> J
-    CDX[codex]       --> J
-    OC[opencode]     --> J
-    LM[local model]  --> J
-    HI[http POST]    --> J
+    subgraph collectors["Collectors (read-only)"]
+        SH[shell stdout]
+        GIT[git log/diff]
+        CL[claude webview]
+        CP[copilot]
+        GM[gemini]
+        CDX[codex sqlite]
+        OC[opencode sqlite]
+        LM[local model jsonl]
+        HI[http POST :9741]
+    end
 
-    J(( journal ))
+    subgraph daemon["urchin-core daemon"]
+        J[(journal.jsonl)]
+        DB[(SQLite index)]
+        J -->|append + index| DB
+    end
 
-    J --> MCP[mcp stdio]
-    J --> HTTP[http GET]
-    J --> VAULT[vault ~/brain]
-    J --> SYNC[cloud sync]
+    subgraph consumers["Consumers"]
+        MCP[MCP stdio\n9 tools]
+        HTTP[HTTP GET\n/query]
+        VAULT[vault projection\n~/brain]
+        SYNC[cloud sync\norinadus-platform]
+        IDE[IDE\nCursor / Zed]
+    end
 
-    classDef core      fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe,font-weight:bold
-    classDef collector fill:#1f2937,stroke:#f59e0b,color:#fef3c7
-    classDef consumer  fill:#064e3b,stroke:#10b981,color:#d1fae5
+    SH  --> J
+    GIT --> J
+    CL  --> J
+    CP  --> J
+    GM  --> J
+    CDX --> J
+    OC  --> J
+    LM  --> J
+    HI  --> J
 
+    DB --> MCP
+    DB --> HTTP
+    DB --> VAULT
+    DB --> SYNC
+    MCP --> IDE
+
+    classDef col  fill:#1f2937,stroke:#f59e0b,color:#fef3c7
+    classDef core fill:#1e3a8a,stroke:#60a5fa,color:#dbeafe,font-weight:bold
+    classDef db   fill:#312e81,stroke:#818cf8,color:#e0e7ff,font-weight:bold
+    classDef con  fill:#064e3b,stroke:#10b981,color:#d1fae5
+    classDef ide  fill:#1c1917,stroke:#a78bfa,color:#ede9fe,font-weight:bold
+
+    class SH,GIT,CL,CP,GM,CDX,OC,LM,HI col
     class J core
-    class SH,GIT,CL,CP,GM,CDX,OC,LM,HI collector
-    class MCP,HTTP,VAULT,SYNC consumer
+    class DB db
+    class MCP,HTTP,VAULT,SYNC con
+    class IDE ide
 ```
 
-Collectors are passive readers — they never write back to source tools. The journal is the spine. Everything else is a nerve.
+Collectors are passive readers. They never write back to source tools. The journal is the append-only spine. SQLite is the queryable index over it. MCP is the read surface for agents and IDEs.
 
 ---
 
