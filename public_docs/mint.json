@@ -1,0 +1,69 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Orinadus",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#ededed",
+    "light": "#ededed",
+    "dark": "#888888",
+    "background": {
+      "dark": "#000000",
+      "light": "#000000"
+    },
+    "anchors": {
+      "from": "#888888",
+      "to": "#ededed"
+    }
+  },
+  "modeToggle": {
+    "default": "dark",
+    "isHidden": true
+  },
+  "topbarLinks": [
+    {
+      "name": "orinadus.com",
+      "url": "https://orinadus.com"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "GitHub",
+    "url": "https://github.com/orinadus-systems/urchin-rust"
+  },
+  "tabs": [],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/orinadus-systems/urchin-rust"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "index"
+      ]
+    },
+    {
+      "group": "Urchin Substrate",
+      "pages": [
+        "api-reference"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/orinadus-systems"
+  },
+  "font": {
+    "headings": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}
