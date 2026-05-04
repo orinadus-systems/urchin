@@ -1,0 +1,190 @@
+---
+title: "POST /ingest"
+description: "Write a single event to the journal over HTTP."
+---
+
+## Endpoint
+
+```http
+POST /ingest HTTP/1.1
+Host: 127.0.0.1:18799
+Content-Type: application/json
+Authorization: Bearer <token>   ← required only if intake_token is configured
+```
+
+## Request body
+
+All fields except the required ones are optional. Optional fields absent from the body are omitted from the JSONL line on disk (no `null` keys written).
+
+<ParamField body="id" type="string" required>
+  RFC 4122 UUID v4. Must be generated client-side. Used as a deduplication key. Example: `"56816532-adb7-4000-8a0f-1dda8408aab5"`
+</ParamField>
+
+<ParamField body="timestamp" type="string" required>
+  RFC 3339 UTC timestamp. Example: `"2026-05-04T20:00:00Z"`
+</ParamField>
+
+<ParamField body="source" type="string" required>
+  Tool or system that produced the event. Must not be blank after trim. Examples: `"claude"`, `"copilot"`, `"cli"`, `"ci"`, `"my-script"`.
+</ParamField>
+
+<ParamField body="kind" type="string" required>
+  Event kind. Accepted values:
+
+  | Value | Use case |
+  |---|---|
+  | `conversation` | AI chat turn, notes, conversational content |
+  | `agent` | Agent-generated reflection or decision |
+  | `command` | Shell command, CLI invocation |
+  | `commit` | Git commit |
+  | `file` | File creation, edit, or deletion |
+  | `decision` | Architectural or product decision |
+  | `<other>` | Any other string is stored as `Other(value)` |
+</ParamField>
+
+<ParamField body="content" type="string" required>
+  The memory payload. Must not be blank after trim.
+</ParamField>
+
+<ParamField body="workspace" type="string">
+  Absolute path to the repo or workspace this event belongs to.
+</ParamField>
+
+<ParamField body="session" type="string">
+  Session identifier. Examples: Copilot session UUID, tmux session name.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Short human-readable title for display in vault projections and `urchin_status` output.
+</ParamField>
+
+<ParamField body="tags" type="string[]">
+  Free-form tags. Omitted from JSONL if empty.
+</ParamField>
+
+<ParamField body="actor" type="object">
+  Identity envelope.
+
+  ```json
+  {
+    "account": "samhc",
+    "device": "saucemachine",
+    "workspace": "/home/user/dev/project"
+  }
+  ```
+
+  All sub-fields are optional. The entire `actor` field is omitted from JSONL if not provided.
+</ParamField>
+
+<ParamField body="brain" type="string">
+  Vault identifier for multi-brain setups. Optional.
+</ParamField>
+
+## Responses
+
+### 200 OK — written
+
+```json
+{
+  "id": "56816532-adb7-4000-8a0f-1dda8408aab5",
+  "status": "ok"
+}
+```
+
+Event was validated and written to the journal.
+
+### 202 Accepted — ephemeral drop
+
+```json
+{
+  "id": "56816532-adb7-4000-8a0f-1dda8408aab5",
+  "status": "dropped",
+  "reason": "ephemeral"
+}
+```
+
+Ephemeral mode is active. The event was accepted but permanently discarded. Nothing written to disk.
+
+### 400 Bad Request — validation failure
+
+`content` or `source` is present but blank (empty or whitespace-only after trim).
+
+```json
+{"error": "content must not be empty"}
+```
+
+```json
+{"error": "source must not be empty"}
+```
+
+### 401 Unauthorized — auth failure
+
+`intake_token` is configured and the `Authorization` header is missing, uses the wrong prefix, or contains the wrong token.
+
+```json
+{"error": "unauthorized"}
+```
+
+Token comparison is string equality. The `Bearer ` prefix (capital B, one space) is required.
+
+### 422 Unprocessable Entity — schema failure
+
+Body is not valid JSON, or one of the required fields (`id`, `timestamp`, `source`, `kind`, `content`) is absent from the body. Response body is Axum's default JSON extractor error — not normalised to the error envelope above.
+
+### 500 Internal Server Error — write failure
+
+`journal.append()` failed (disk full, permission error, mutex poisoned).
+
+```json
+{"error": "No space left on device"}
+```
+
+## Examples
+
+<CodeGroup>
+
+```bash Minimal
+curl -s -X POST http://127.0.0.1:18799/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "56816532-adb7-4000-8a0f-1dda8408aab5",
+    "timestamp": "2026-05-04T20:00:00Z",
+    "source": "copilot",
+    "kind": "conversation",
+    "content": "Hardened intake auth and added journal write lock."
+  }'
+```
+
+```bash Full with auth
+curl -s -X POST http://127.0.0.1:18799/ingest \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer mysecrettoken" \
+  -d '{
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2026-05-04T20:00:00Z",
+    "source": "claude",
+    "kind": "decision",
+    "content": "Use file-backed ephemeral flag for cross-process suppression.",
+    "workspace": "/home/user/dev/orinadus/substrate/urchin-rust",
+    "session": "session-abc123",
+    "title": "Cross-process ephemeral design decision",
+    "tags": ["architecture", "ephemeral", "substrate"],
+    "actor": {
+      "account": "samhc",
+      "device": "saucemachine",
+      "workspace": "/home/user/dev/orinadus/substrate/urchin-rust"
+    }
+  }'
+```
+
+</CodeGroup>
+
+## JSONL on-disk format
+
+Each successful `POST /ingest` appends one line:
+
+```json
+{"id":"56816532-adb7-4000-8a0f-1dda8408aab5","timestamp":"2026-05-04T20:00:00Z","source":"copilot","kind":"conversation","content":"Hardened intake auth.","workspace":"/home/user/dev/project","tags":["substrate"]}
+```
+
+`None` optional fields are omitted. Empty `tags` are omitted.

@@ -1,0 +1,95 @@
+---
+title: "urchin_status"
+description: "Show journal health, event count, paths, and identity from the MCP server."
+---
+
+## Schema
+
+```json
+{
+  "name": "urchin_status",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}
+```
+
+No arguments.
+
+## Behaviour
+
+Reads `Journal::stats()` and the resolved config and identity. Returns a plain-text block.
+
+## Success response
+
+```
+urchin — local memory sync substrate
+
+running:  true
+events:   1042
+size:     412 KB
+last:     2026-05-04T20:00:00Z (claude)
+journal:  /home/samhc/.local/share/urchin/journal/events.jsonl
+intake:   18799
+vault:    /home/samhc/brain
+account:  samhc
+device:   saucemachine
+```
+
+<ResponseField name="running" type="boolean">
+  Always `true` if the tool responds — the MCP server is the one answering.
+</ResponseField>
+
+<ResponseField name="events" type="integer">
+  Total event count in the journal.
+</ResponseField>
+
+<ResponseField name="size" type="string">
+  Journal file size in KB.
+</ResponseField>
+
+<ResponseField name="last" type="string">
+  Timestamp and source of the most recent event. `(no events yet)` if the journal is empty.
+</ResponseField>
+
+<ResponseField name="journal" type="path">
+  Resolved path to `events.jsonl`.
+</ResponseField>
+
+<ResponseField name="intake" type="integer">
+  Configured `intake_port` (default 18799).
+</ResponseField>
+
+<ResponseField name="vault" type="path">
+  Resolved `vault_root` path.
+</ResponseField>
+
+<ResponseField name="account" type="string">
+  Identity account (from `URCHIN_ACCOUNT`, `$USER`, or `"unknown"`).
+</ResponseField>
+
+<ResponseField name="device" type="string">
+  Identity device (from `URCHIN_DEVICE`, hostname, or `"unknown"`).
+</ResponseField>
+
+## Error response
+
+```json
+{
+  "content": [{"type": "text", "text": "failed to read journal stats: ..."}],
+  "isError": true
+}
+```
+
+Only returned if `Journal::stats()` itself fails (e.g. permissions error).
+
+## Example call
+
+```json
+{
+  "name": "urchin_status",
+  "arguments": {}
+}
+```

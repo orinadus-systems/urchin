@@ -1,0 +1,68 @@
+---
+title: "Collectors Overview"
+description: "How Urchin's passive pull collectors work, what sources are supported, and the checkpoint system."
+---
+
+## Principle
+
+Collectors are read-only. They pull data from existing tool state files — history files, SQLite databases, JSONL logs — and translate new entries into Urchin events. They never write back to source tools, never install hooks, and never modify your shell config.
+
+Every collector is idempotent. Running the same collector twice produces no duplicate events because each collector maintains a checkpoint.
+
+## Checkpoint mechanism
+
+Each collector stores a checkpoint file in `~/.local/share/urchin/`. On each run:
+
+1. Read the checkpoint (byte offset, SHA, row ID, or content hash — depending on collector).
+2. Read only the entries **after** the checkpoint position.
+3. Write new entries to the journal.
+4. Update the checkpoint to the new position.
+
+If the source file does not exist, the collector exits silently (no error, no output).
+
+## Available collectors
+
+| Collector | Command | Source |
+|---|---|---|
+| Shell | `urchin collect shell` | `~/.bash_history` |
+| Git | `urchin collect git --repo <path>` | `.git/` commit log |
+| Claude | `urchin collect claude` | `~/.claude/projects/` JSONL |
+| Copilot | `urchin collect copilot` | `~/.copilot/command-history-state.json` |
+| Gemini | `urchin collect gemini` | `~/.gemini/tmp/*/chats/*.jsonl` |
+| Codex | `urchin collect codex` | `~/.codex/state_5.sqlite` |
+| OpenCode | `urchin collect opencode` | `~/.local/share/opencode/opencode.db` |
+| Local model | `urchin collect local-model` | `~/.local/share/urchin/local-model.jsonl` |
+
+Run all at once:
+
+```bash
+urchin collect all
+```
+
+`urchin serve` runs the collector loop automatically in the background.
+
+## Event kinds per collector
+
+| Collector | `kind` | `source` |
+|---|---|---|
+| Shell | `command` | `shell` |
+| Git | `commit` | `git` |
+| Claude | `conversation` | `claude` |
+| Copilot | `conversation` | `copilot` |
+| Gemini | `conversation` | `gemini` |
+| Codex | `conversation` | `codex` |
+| OpenCode | `conversation` | `opencode` |
+| Local model | `conversation` | `local-model` |
+
+## Availability detection
+
+Each collector implements `is_available()` which checks whether its source path exists. `urchin collect all` calls `is_available()` before running each collector and silently skips unavailable ones. This means `all` is safe to run on machines where only a subset of tools are installed.
+
+## Adding events from custom sources
+
+If your tool is not in the list above, push events directly:
+
+- **HTTP**: `POST /ingest` to `http://127.0.0.1:18799/ingest`
+- **CLI**: `urchin ingest --content "..." --source my-tool`
+- **Drop file**: Append to `~/.local/share/urchin/local-model.jsonl` (for local inference tools)
+- **SDK**: Use `urchin-sdk` (Rust) with the `EventBuilder` pattern

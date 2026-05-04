@@ -1,0 +1,88 @@
+---
+title: "urchin serve"
+description: "Start the HTTP intake server and background collector loop."
+---
+
+## Synopsis
+
+```bash
+urchin serve
+```
+
+No flags. Configuration comes from `~/.config/urchin/config.toml` and environment variables.
+
+## What it starts
+
+1. **HTTP intake server** — `127.0.0.1:<intake_port>` (default `18799`). Accepts `POST /ingest` and `GET /health`.
+2. **Collector tick loop** — periodically runs all available collectors (shell, git, claude, copilot, gemini, codex, opencode, local-model) and appends new events to the journal.
+
+The server runs in the foreground and blocks until killed.
+
+## Port
+
+Default: `18799`. Override via `intake_port` in config or `URCHIN_INTAKE_PORT` env var.
+
+The server binds `127.0.0.1` only — never `0.0.0.0`. It is loopback-only by design.
+
+## Running as a background daemon
+
+`urchin serve` does not daemonise itself. Use your OS process supervisor:
+
+<CodeGroup>
+
+```bash systemd (Linux)
+# ~/.config/systemd/user/urchin.service
+[Unit]
+Description=Urchin memory substrate
+
+[Service]
+ExecStart=%h/.cargo/bin/urchin serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```bash launchd (macOS)
+# ~/Library/LaunchAgents/com.orinadus.urchin.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>          <string>com.orinadus.urchin</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/.cargo/bin/urchin</string>
+    <string>serve</string>
+  </array>
+  <key>RunAtLoad</key>      <true/>
+  <key>KeepAlive</key>      <true/>
+</dict>
+</plist>
+```
+
+```bash Shell background
+urchin serve &
+# Or with nohup:
+nohup urchin serve > ~/.local/share/urchin/serve.log 2>&1 &
+```
+
+</CodeGroup>
+
+## Verify
+
+```bash
+curl http://127.0.0.1:18799/health
+```
+
+```json
+{"status":"ok","events":42,"ephemeral":false}
+```
+
+## Notes
+
+- The MCP server (`urchin mcp`) does not require `urchin serve`. The two are independent.
+- The collector loop runs each collector once on startup, then on a periodic tick. The tick interval is not user-configurable in v0.3.4.
+- Collector errors are logged at `WARN` level but do not stop the server.
+- Set `URCHIN_LOG=urchin=debug` to see verbose output.

@@ -1,0 +1,81 @@
+---
+title: "VS Code / Copilot Chat Integration"
+description: "Connect Urchin's MCP server to VS Code Copilot Chat for persistent cross-session memory."
+---
+
+## Configuration
+
+Create `.vscode/mcp.json` in your workspace root (not in `.vscode/settings.json`):
+
+```json
+{
+  "servers": {
+    "urchin": {
+      "type": "stdio",
+      "command": "urchin",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Restart VS Code. The Urchin tools appear in Copilot Chat automatically.
+
+<Note>
+`.vscode/mcp.json` is workspace-scoped. To enable Urchin globally across all VS Code workspaces, use the VS Code user settings MCP config instead (see VS Code MCP documentation for the exact path on your platform).
+</Note>
+
+## Verify
+
+In Copilot Chat, type:
+
+```
+#urchin_status
+```
+
+Or just ask the agent to run `urchin_status`. Expected output:
+
+```
+urchin — local memory sync substrate
+
+running:  true
+events:   1042
+...
+```
+
+## Available tools in Copilot Chat
+
+Once connected, Copilot Chat has access to all 10 Urchin MCP tools:
+
+| Tool | Purpose |
+|---|---|
+| `urchin_status` | Show journal health and identity |
+| `urchin_ingest` | Record a decision, note, or context |
+| `urchin_recent_activity` | Recall recent events across all sources |
+| `urchin_search` | Keyword search over journal content |
+| `urchin_project_context` | Scope recall to a project name |
+| `urchin_workspace_context` | Load context for the current repo path |
+| `urchin_remember` | Quick-capture without a workspace |
+| `urchin_ephemeral` | Toggle burn mode — suppress writes |
+| `urchin_agent_reflect` | ReAct reflection over recent journal |
+| `urchin_semantic_search` | Semantic (cosine similarity) search |
+
+## Recommended INSTRUCTIONS file addition
+
+Add to `.github/copilot-instructions.md` in your repo:
+
+```markdown
+At the start of each session, call urchin_workspace_context with the repository root path
+to load recent memory. Record decisions with urchin_ingest using kind: decision.
+```
+
+## Requirements
+
+- `urchin` on PATH. Install: `cargo install --path crates/urchin-cli`
+- VS Code with the GitHub Copilot extension
+- MCP support in Copilot Chat (available in recent versions)
+
+## Notes
+
+- `urchin serve` is not required for the MCP integration. The VS Code extension launches `urchin mcp` as a subprocess directly.
+- If the `.vscode/mcp.json` file is committed to the repo, all team members who open the repo in VS Code will have Urchin available in Copilot Chat (assuming `urchin` is on their PATH).

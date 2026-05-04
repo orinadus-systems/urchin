@@ -1,0 +1,81 @@
+---
+title: "Environment Variables"
+description: "Environment variables that override config.toml values at runtime."
+---
+
+All env vars are read at process startup in `Config::load()`. They override the corresponding `config.toml` key. If both a file key and an env var are set, the env var wins.
+
+## Variables
+
+<ResponseField name="URCHIN_VAULT_ROOT" type="path">
+  Overrides `vault_root`. Must be an absolute path.
+
+  Default (if neither file nor env): `~/brain`
+</ResponseField>
+
+<ResponseField name="URCHIN_JOURNAL_PATH" type="path">
+  Overrides `journal_path`. Must be an absolute path.
+
+  Default: `~/.local/share/urchin/journal/events.jsonl`
+</ResponseField>
+
+<ResponseField name="URCHIN_INTAKE_PORT" type="integer">
+  Overrides `intake_port`. Must parse as a valid `u16`. If parsing fails, falls back to `18799`.
+
+  Default: `18799`
+</ResponseField>
+
+<ResponseField name="URCHIN_INTAKE_TOKEN" type="string">
+  Overrides `intake_token`. Sets the Bearer token required on `POST /ingest`.
+
+  When this var is unset and the config file has no `intake_token`, auth is disabled.
+</ResponseField>
+
+<ResponseField name="URCHIN_CLOUD_URL" type="string">
+  Overrides `cloud_url`.
+</ResponseField>
+
+<ResponseField name="URCHIN_CLOUD_TOKEN" type="string">
+  Overrides `cloud_token`.
+</ResponseField>
+
+<ResponseField name="URCHIN_ACCOUNT" type="string">
+  Sets the `account` field in the `Identity` envelope attached to events. Not a config key — read directly by `Identity::resolve()`.
+
+  Default: `$USER` → hostname → `"unknown"`
+</ResponseField>
+
+<ResponseField name="URCHIN_DEVICE" type="string">
+  Sets the `device` field in the `Identity` envelope.
+
+  Default: system hostname → `"unknown"`
+</ResponseField>
+
+<ResponseField name="URCHIN_REPO_ROOTS" type="string">
+  Colon-separated list of git repo root paths. Used by `urchin collect git` and `urchin collect all` when no `--repo` flags are passed.
+
+  Example: `/home/user/dev/project1:/home/user/dev/project2`
+</ResponseField>
+
+<ResponseField name="URCHIN_LOG" type="string">
+  Log filter directive for the `tracing` crate. Controls verbosity.
+
+  Example values: `urchin=info` (default), `urchin=debug`, `urchin=trace`, `debug`
+</ResponseField>
+
+## Example shell setup
+
+```bash
+# ~/.bashrc or ~/.zshrc
+
+export URCHIN_JOURNAL_PATH="$HOME/.local/share/urchin/journal/events.jsonl"
+export URCHIN_INTAKE_TOKEN="my-local-secret"
+export URCHIN_REPO_ROOTS="$HOME/dev/project1:$HOME/dev/project2"
+export URCHIN_LOG="urchin=info"
+```
+
+## Notes
+
+- `URCHIN_INTAKE_PORT` silently falls back to `18799` on parse error — it does not panic.
+- `URCHIN_ACCOUNT` and `URCHIN_DEVICE` are not stored in `config.toml`. They are only readable via env.
+- There is no env var for `cache_path` or `remote_host` in v0.3.4.

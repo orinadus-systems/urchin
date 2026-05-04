@@ -1,0 +1,60 @@
+---
+title: "urchin doctor"
+description: "Print identity, config source, paths, and journal stats."
+---
+
+## Synopsis
+
+```bash
+urchin doctor
+```
+
+No flags.
+
+## Output
+
+`doctor` prints the resolved configuration and current journal state to stdout. Example:
+
+```
+urchin — local memory sync substrate
+
+identity
+  account:      samhc
+  device:       saucemachine
+
+config
+  source:       ~/.config/urchin/config.toml
+  vault_root:   /home/samhc/brain
+  journal_path: /home/samhc/.local/share/urchin/journal/events.jsonl
+  intake_port:  18799
+  cloud_url:    https://www.orinadus.com/api/urchin-sync
+  cloud_token:  [set]
+  intake_token: [not set]
+
+journal
+  exists:       true
+  events:       1042
+  file_size:    412 KB
+  last_event:   2026-05-04T20:00:00Z (source: claude)
+```
+
+## What it checks
+
+| Section | What is shown |
+|---|---|
+| `identity` | Resolved `account` and `device` from env, config, or system defaults |
+| `config.source` | Whether config was loaded from the file or defaults |
+| `vault_root` | Path to the `~/brain` vault |
+| `journal_path` | Full path to `events.jsonl` |
+| `intake_port` | Port the HTTP server will bind |
+| `cloud_url` / `cloud_token` | Whether cloud sync is configured (`[set]` or `[not set]`) |
+| `intake_token` | Whether HTTP auth is enabled |
+| `journal.exists` | Whether the journal file is present |
+| `journal.events` | Current event count |
+| `journal.last_event` | Timestamp and source of the most recent event |
+
+## Use cases
+
+- Confirm that env var overrides are being picked up correctly.
+- Verify the journal path before running collectors or the serve daemon.
+- Check that `cloud_token` is set before running `urchin sync`.

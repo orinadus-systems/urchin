@@ -1,0 +1,70 @@
+---
+title: "Git Collector"
+description: "Ingests new commits from one or more git repositories using a per-repo SHA checkpoint."
+---
+
+## Command
+
+```bash
+urchin collect git --repo <PATH> [--repo <PATH> ...]
+```
+
+## Arguments
+
+<ParamField path="--repo" type="string">
+  Absolute path to a git repository root. Repeatable. Can be provided multiple times:
+
+  ```bash
+  urchin collect git --repo /home/user/dev/project-a --repo /home/user/dev/project-b
+  ```
+
+  Alternatively, set `URCHIN_REPO_ROOTS` as a colon-separated list and run without `--repo`:
+
+  ```bash
+  export URCHIN_REPO_ROOTS="/home/user/dev/project-a:/home/user/dev/project-b"
+  urchin collect git
+  ```
+</ParamField>
+
+## Behaviour
+
+For each repository:
+
+1. Reads the checkpoint at `~/.local/share/urchin/git-<repo-hash>.checkpoint` to get the last ingested commit SHA.
+2. Walks `git log` from HEAD back to (but not including) the checkpoint SHA.
+3. On **first run**: records HEAD as the checkpoint and ingests nothing. This prevents flooding the journal with the entire commit history.
+4. On subsequent runs: ingests only new commits since the last checkpoint.
+5. Each commit becomes an `Event` with:
+   - `source: "git"`
+   - `kind: "commit"`
+   - `content`: the commit message body
+   - `title`: the short (first-line) commit message
+   - `workspace`: the repo path
+   - `actor`: local identity
+
+## Event shape
+
+```json
+{
+  "id": "...",
+  "timestamp": "2026-05-04T18:42:00Z",
+  "source": "git",
+  "kind": "commit",
+  "content": "feat: add ephemeral mode cross-process flag file\n\nUses a lock file at ~/.local/share/urchin/ephemeral.lock\nso both urchin-mcp and urchin-intake suppress writes simultaneously.",
+  "title": "feat: add ephemeral mode cross-process flag file",
+  "workspace": "/home/user/dev/orinadus/substrate/urchin-rust",
+  "actor": {
+    "account": "samhc",
+    "device": "saucemachine",
+    "workspace": "/home/user/dev/orinadus/substrate/urchin-rust"
+  }
+}
+```
+
+## Notes
+
+- Commits are ingested in chronological order (oldest-first after the checkpoint).
+- The collector uses the **commit author timestamp**, not the wall-clock time it runs.
+- Merge commits are included. Use `.gitignore`-style filtering if you want to exclude them — there is no built-in filter in v0.3.4.
+- Running `urchin collect all` passes repos from `URCHIN_REPO_ROOTS` only. Repos passed via `--repo` are not available to `all`.
+- The checkpoint file name is a hash of the normalised repo path, so two paths pointing to the same repo (e.g. symlinks) will generate separate checkpoints.

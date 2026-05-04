@@ -1,0 +1,130 @@
+---
+title: "urchin collect"
+description: "Run a collector once and append new events to the journal."
+---
+
+## Synopsis
+
+```bash
+urchin collect <COLLECTOR> [OPTIONS]
+```
+
+## Subcommands
+
+### shell
+
+```bash
+urchin collect shell
+```
+
+Tails `~/.bash_history` from the last recorded byte offset. New lines are ingested as `command` events with `source: "shell"`. A checkpoint file at `~/.local/share/urchin/shell.checkpoint` tracks the offset so reruns are incremental.
+
+No-op if `~/.bash_history` does not exist.
+
+---
+
+### git
+
+```bash
+urchin collect git --repo <PATH> [--repo <PATH> ...]
+```
+
+<ParamField path="--repo" type="string" required>
+  Absolute path to a git repository root. Repeatable. Can also be supplied via the `URCHIN_REPO_ROOTS` environment variable (colon-separated paths).
+</ParamField>
+
+Reads new commits since the last recorded SHA for each repo. Ingests each commit as a `commit` event with the commit message as `content`, commit SHA in `title`, and `source: "git"`. Per-repo checkpoints are stored in `~/.local/share/urchin/git-<hash>.checkpoint`.
+
+First run per repo is silent — it records the current HEAD but does not ingest historical commits.
+
+```bash
+urchin collect git --repo /home/user/dev/myproject
+
+# Or via env var:
+export URCHIN_REPO_ROOTS=/home/user/dev/myproject:/home/user/dev/other
+urchin collect git
+```
+
+---
+
+### claude
+
+```bash
+urchin collect claude
+```
+
+Reads `~/.claude/projects/` JSONL transcript files. Ingests new conversation turns as `conversation` events with `source: "claude"`. Uses file + line-offset checkpoints.
+
+---
+
+### copilot
+
+```bash
+urchin collect copilot
+```
+
+Reads `~/.copilot/command-history-state.json`. Uses a content-addressed hash checkpoint — reruns only ingest entries that weren't present in the previous run.
+
+---
+
+### gemini
+
+```bash
+urchin collect gemini
+```
+
+Reads `~/.gemini/tmp/*/chats/*.jsonl`. Partial-offset checkpoint per file.
+
+---
+
+### codex
+
+```bash
+urchin collect codex
+```
+
+Reads `~/.codex/state_5.sqlite`, `threads` table. Captures `first_user_message` as intent. Row ID watermark checkpoint.
+
+---
+
+### opencode
+
+```bash
+urchin collect opencode
+```
+
+Reads `~/.local/share/opencode/opencode.db`. JOINs messages with sessions, filters to user-role messages. Row ID watermark checkpoint.
+
+---
+
+### local-model
+
+```bash
+urchin collect local-model
+```
+
+Reads `~/.local/share/urchin/local-model.jsonl`. Any local inference harness (Ollama, LM Studio, llama.cpp) can push events by appending newline-delimited JSON to this file:
+
+```json
+{"prompt":"fix the memory leak","model":"ollama:mistral","ts":"2026-05-01T10:00:00Z","workspace":"/opt/project"}
+```
+
+Fields: `prompt` (required), `model` (optional), `ts` (RFC3339, optional), `workspace` (optional). Urchin reads from this file and never writes to it. No-op when the file does not exist.
+
+---
+
+### all
+
+```bash
+urchin collect all
+```
+
+Runs every collector that has a discoverable default path: shell, git (via `URCHIN_REPO_ROOTS`), claude, copilot, gemini, codex, opencode, local-model.
+
+Collectors whose source path does not exist are silently skipped.
+
+## Notes
+
+- All collectors are read-only. They never write back to source tools.
+- Each collector is idempotent — running it twice produces no duplicate events.
+- Collector errors are printed to stderr but do not affect other collectors when running `all`.

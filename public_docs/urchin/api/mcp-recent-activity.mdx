@@ -1,0 +1,99 @@
+---
+title: "urchin_recent_activity"
+description: "List recent journal events, newest first, with optional source and time window filters."
+---
+
+## Schema
+
+```json
+{
+  "name": "urchin_recent_activity",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hours":  { "type": "number" },
+      "limit":  { "type": "number" },
+      "source": { "type": "string" }
+    },
+    "additionalProperties": false
+  }
+}
+```
+
+## Arguments
+
+<ParamField body="hours" type="number" default="24">
+  Look back this many hours from now. Events older than `now - hours` are excluded.
+</ParamField>
+
+<ParamField body="limit" type="number" default="20">
+  Maximum number of events to return. Applied after time filtering.
+</ParamField>
+
+<ParamField body="source" type="string">
+  Filter to events from a specific source. Case-insensitive exact match. Examples: `"claude"`, `"shell"`, `"copilot"`. Omit to return events from all sources.
+</ParamField>
+
+## Behaviour
+
+1. Reads all events from the journal.
+2. Filters to events within the `hours` window.
+3. If `source` is provided, further filters to that source.
+4. Returns the most recent `limit` events, newest first.
+
+## Success response
+
+One line per event:
+
+```
+[2026-05-04T20:00:00Z] claude — Chose file-backed flag for cross-process ephemeral mode
+[2026-05-04T18:30:00Z] shell — cargo build --release
+[2026-05-04T17:45:00Z] copilot — Refactored intake auth to strip Bearer prefix before comparison
+```
+
+Returns an empty string if no events match.
+
+## Example calls
+
+<CodeGroup>
+
+```json Last 24 hours (default)
+{
+  "name": "urchin_recent_activity",
+  "arguments": {}
+}
+```
+
+```json Last week, Claude only
+{
+  "name": "urchin_recent_activity",
+  "arguments": {
+    "hours": 168,
+    "source": "claude",
+    "limit": 50
+  }
+}
+```
+
+```json Last hour, all sources
+{
+  "name": "urchin_recent_activity",
+  "arguments": {
+    "hours": 1,
+    "limit": 100
+  }
+}
+```
+
+</CodeGroup>
+
+## Error response
+
+```json
+{
+  "content": [{"type": "text", "text": "failed to read journal: ..."}],
+  "isError": true
+}
+```
+
+Only if the journal file cannot be read (permissions error, corrupt JSONL). A missing journal returns an empty result, not an error.

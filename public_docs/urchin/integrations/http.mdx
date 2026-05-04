@@ -1,0 +1,123 @@
+---
+title: "HTTP Integration"
+description: "Push events to Urchin over HTTP from scripts, SDKs, and external tools."
+---
+
+## Endpoint
+
+```
+POST http://127.0.0.1:18799/ingest
+Content-Type: application/json
+```
+
+The intake server binds loopback only (`127.0.0.1`). It is not reachable from other machines.
+
+## When to use HTTP vs CLI
+
+| Scenario | Recommended path |
+|---|---|
+| One-off event from a shell script | `urchin ingest --content "..."` |
+| Events from a long-running process | HTTP `POST /ingest` |
+| Events from a Rust application | `urchin-sdk` crate |
+| Events from a non-Rust application | HTTP `POST /ingest` |
+| IDE/agent integration | MCP (`urchin mcp`) |
+
+## Minimal example
+
+```bash
+curl -s -X POST http://127.0.0.1:18799/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "'"$(uuidgen | tr '[:upper:]' '[:lower:]')"'",
+    "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+    "source": "my-script",
+    "kind": "command",
+    "content": "deployment completed successfully"
+  }'
+```
+
+## Full example with auth and metadata
+
+```bash
+curl -s -X POST http://127.0.0.1:18799/ingest \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer my-local-token" \
+  -d '{
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2026-05-04T20:00:00Z",
+    "source": "ci",
+    "kind": "decision",
+    "content": "Deployed v1.4.2 to production. All health checks passed.",
+    "workspace": "/home/user/dev/my-service",
+    "title": "Production deploy v1.4.2",
+    "tags": ["deploy", "production", "v1.4.2"],
+    "actor": {
+      "account": "samhc",
+      "device": "ci-runner-01"
+    }
+  }'
+```
+
+## Using urchin-sdk (Rust)
+
+```rust
+use urchin_sdk::builder::EventBuilder;
+use urchin_core::event::EventKind;
+
+let event = EventBuilder::new()
+    .source("my-tool")
+    .kind(EventKind::Decision)
+    .content("Chose file-backed flag for cross-process ephemeral mode")
+    .workspace("/home/user/project")
+    .tag("architecture")
+    .build();
+
+let client = urchin_sdk::Client::new(
+    "http://127.0.0.1:18799",
+    Some("my-token".into()),
+);
+client.ingest(event).await?;
+```
+
+## Authentication
+
+Authentication is opt-in. Set `intake_token` in `config.toml` or `URCHIN_INTAKE_TOKEN` to require a Bearer token.
+
+When a token is configured:
+
+```
+Authorization: Bearer <your-token>
+```
+
+Missing or wrong token returns `401 {"error": "unauthorized"}`.
+
+## Starting the server
+
+```bash
+urchin serve
+```
+
+Verify it is running:
+
+```bash
+curl http://127.0.0.1:18799/health
+# {"status":"ok","events":42,"ephemeral":false}
+```
+
+See [urchin serve](/urchin/cli/serve) for daemon setup details.
+
+## Required fields
+
+Every `POST /ingest` body must include:
+
+| Field | Notes |
+|---|---|
+| `id` | UUID v4 string. Generate client-side. Used as a deduplication key. |
+| `timestamp` | RFC 3339 UTC. Example: `2026-05-04T20:00:00Z` |
+| `source` | Non-blank string identifying the originating tool. |
+| `kind` | One of: `conversation`, `agent`, `command`, `commit`, `file`, `decision` |
+| `content` | Non-blank string. The memory payload. |
+
+Missing any of these returns `422`. Blank `content` or `source` returns `400`.
+
+See [POST /ingest](/urchin/api/http-ingest) for the full API reference.

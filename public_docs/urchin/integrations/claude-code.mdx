@@ -1,0 +1,88 @@
+---
+title: "Claude Code Integration"
+description: "Connect Urchin's MCP server to Claude Code for persistent cross-session memory."
+---
+
+## What this gives you
+
+Claude Code (Anthropic's CLI agent) supports MCP servers. Connecting Urchin means Claude can:
+
+- Call `urchin_status` to check what's in the journal
+- Call `urchin_ingest` to record decisions, plans, and context to the journal
+- Call `urchin_recent_activity` to recall what happened in recent sessions
+- Call `urchin_search` to find past context by keyword
+- Call `urchin_project_context` to scope recall to a specific project
+- Call `urchin_workspace_context` to load context for the current repo at session start
+- Call `urchin_remember` for quick notes not tied to a specific workspace
+- Use `urchin_ephemeral` to suppress journal writes during sensitive work
+
+## Configuration
+
+Add Urchin to Claude Code's MCP config. The config file location depends on scope:
+
+<Tabs>
+  <Tab title="Global (~/.claude/mcp.json)">
+    Available across all Claude Code sessions:
+
+    ```json
+    {
+      "mcpServers": {
+        "urchin": {
+          "command": "urchin",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Project-scoped (.claude/mcp.json)">
+    Place in your project root to enable only for that project:
+
+    ```json
+    {
+      "mcpServers": {
+        "urchin": {
+          "command": "urchin",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+After editing the config, restart Claude Code.
+
+## Verify
+
+Run `urchin_status` in a Claude Code session:
+
+```
+urchin — local memory sync substrate
+
+running:  true
+events:   1042
+size:     412 KB
+last:     2026-05-04T20:00:00Z (claude)
+journal:  /home/samhc/.local/share/urchin/journal/events.jsonl
+intake:   18799
+vault:    /home/samhc/brain
+account:  samhc
+device:   saucemachine
+```
+
+## Recommended system prompt addition
+
+To encourage Claude to use Urchin at session start:
+
+```
+At the start of each session, call urchin_workspace_context with the current working directory
+to load recent memory for this project. Call urchin_ingest to record decisions and key context
+as you work.
+```
+
+## Notes
+
+- `urchin` must be on PATH in the environment that Claude Code runs in. Install with `cargo install --path crates/urchin-cli`.
+- The Urchin MCP server (`urchin mcp`) is a subprocess — Claude Code launches it, not a running daemon. `urchin serve` is not required for MCP.
+- The Claude collector (`urchin collect claude`) reads `~/.claude/projects/` to retroactively capture conversation history. It is a separate, independent mechanism from the MCP integration.

@@ -1,0 +1,110 @@
+---
+title: "urchin_search"
+description: "Case-insensitive substring search over event content within a time window."
+---
+
+## Schema
+
+```json
+{
+  "name": "urchin_search",
+  "inputSchema": {
+    "type": "object",
+    "required": ["query"],
+    "properties": {
+      "query": { "type": "string" },
+      "hours": { "type": "number" },
+      "limit": { "type": "number" }
+    },
+    "additionalProperties": false
+  }
+}
+```
+
+## Arguments
+
+<ParamField body="query" type="string" required>
+  Substring to search for. Case-insensitive. Matched against the `content` field of each event. Must not be blank.
+</ParamField>
+
+<ParamField body="hours" type="number" default="168">
+  Look back this many hours. Default is 168 (1 week). Events older than the window are excluded.
+</ParamField>
+
+<ParamField body="limit" type="number" default="20">
+  Maximum number of results to return. Applied after time and content filtering.
+</ParamField>
+
+## Behaviour
+
+1. Reads all events from the journal.
+2. Filters to events within the `hours` window.
+3. Filters to events where `content` contains `query` (case-insensitive).
+4. Returns the most recent `limit` matching events, newest first.
+
+The search is a simple `str::to_lowercase().contains()` — no tokenisation, no stemming, no relevance ranking. For semantic/conceptual search, use `urchin_semantic_search` instead.
+
+## Success response
+
+One line per matching event:
+
+```
+[2026-05-04T20:00:00Z] claude — Use file-backed ephemeral flag for cross-process suppression
+[2026-05-03T14:20:00Z] copilot — ephemeral mode: suppress writes during sensitive session
+```
+
+Returns an empty string if no events match.
+
+## Example calls
+
+<CodeGroup>
+
+```json Basic keyword search
+{
+  "name": "urchin_search",
+  "arguments": {
+    "query": "ephemeral"
+  }
+}
+```
+
+```json Narrow time window
+{
+  "name": "urchin_search",
+  "arguments": {
+    "query": "deploy",
+    "hours": 48,
+    "limit": 10
+  }
+}
+```
+
+```json Full history search
+{
+  "name": "urchin_search",
+  "arguments": {
+    "query": "auth token",
+    "hours": 8760,
+    "limit": 50
+  }
+}
+```
+
+</CodeGroup>
+
+## Error response
+
+```json
+{
+  "content": [{"type": "text", "text": "query must not be empty"}],
+  "isError": true
+}
+```
+
+Also returns `isError: true` if the journal cannot be read.
+
+## Difference from urchin_semantic_search
+
+`urchin_search` is a literal substring match — exact and fast. Use it when you know the specific word or phrase.
+
+`urchin_semantic_search` uses token-cosine similarity (or vector embeddings if `URCHIN_EMBEDDER_URL` is set). Use it for conceptual queries like "decisions about authentication" where the exact words may not appear in the content.

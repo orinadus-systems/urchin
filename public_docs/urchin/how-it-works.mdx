@@ -1,0 +1,107 @@
+---
+title: "How It Works"
+description: "Journal internals, write safety, collector checkpoints, ephemeral mode, and the MCP/HTTP data paths."
+---
+
+## The journal
+
+The journal is a newline-delimited JSON file at:
+
+```
+~/.local/share/urchin/journal/events.jsonl
+```
+
+Every event is one line. Lines are appended and never modified. There is no compaction, no deletion, no rewrite. If the file does not exist, the first write creates it (including any intermediate directories).
+
+Each line is the compact JSON serialisation of an `Event` struct with `skip_serializing_if` applied:
+- `None` optional fields are omitted entirely — no `null` keys
+- `tags: []` is omitted
+- All present fields are serialised as-is
+
+Example line:
+```json
+{"id":"56816532-adb7-4000-8a0f-1dda8408aab5","timestamp":"2026-05-04T20:00:00Z","source":"copilot","kind":"conversation","content":"Hardened intake auth.","workspace":"/home/user/dev/project","tags":["substrate"]}
+```
+
+## Write safety
+
+The `Journal` struct holds a `std::sync::Mutex<()>` write lock. All appends acquire this lock, open the file with `OpenOptions::append`, write the line, and close. This serialises concurrent writes within a single process.
+
+`urchin-mcp` and `urchin-collectors` share the journal file via the filesystem, not via IPC. Multiple processes writing simultaneously will interleave correctly because each write is a single `write(2)` syscall on a line that fits in a typical page — POSIX guarantees atomicity for writes smaller than `PIPE_BUF` on a regular file opened with `O_APPEND`.
+
+## Process topology
+
+```
+urchin-intake (127.0.0.1:18799)    urchin-mcp (stdio)    urchin-collectors
+         │                                  │                     │
+         └──────────────────────────────────┴─────────────────────┘
+                                            │
+                                   events.jsonl  (append-only)
+```
+
+None of the three processes communicate with each other. They all read and write the same journal file directly.
+
+## Intake pipeline
+
+Every `POST /ingest` passes through four sequential gates:
+
+1. **Auth check** — if `intake_token` is configured, the `Authorization: Bearer <token>` header must match exactly. Returns `401` on mismatch.
+2. **Ephemeral check** — if the ephemeral flag file is present, the event is accepted but permanently discarded. Returns `202`.
+3. **Validation** — `content` and `source` must be non-blank after trim. Returns `400` if either is empty.
+4. **Journal write** — mutex-guarded append. Returns `200 {"id": "...", "status": "ok"}` on success.
+
+## Collectors
+
+Each collector is a read-only pull operation against a specific source:
+
+| Collector | Source path | Checkpoint mechanism |
+|---|---|---|
+| `shell` | `~/.bash_history` | byte-offset checkpoint |
+| `git` | per-repo `.git/` | per-repo SHA checkpoint; silent on first run |
+| `claude` | `~/.claude/projects/` JSONL transcripts | file + line offset |
+| `copilot` | `~/.copilot/command-history-state.json` | content-addressed hash |
+| `gemini` | `~/.gemini/tmp/*/chats/*.jsonl` | partial-offset checkpoint |
+| `codex` | `~/.codex/state_5.sqlite` | row ID watermark |
+| `opencode` | `~/.local/share/opencode/opencode.db` | row ID watermark |
+| `local-model` | `~/.local/share/urchin/local-model.jsonl` | byte-offset checkpoint |
+
+Checkpoints are stored in `~/.local/share/urchin/` alongside the journal. A collector is a no-op if its source path does not exist.
+
+## Ephemeral mode
+
+Ephemeral (burn) mode suppresses all writes across both MCP and HTTP intake simultaneously.
+
+State is managed via a flag file:
+- **Activate**: `urchin_ephemeral(action: "start")` or the MCP tool creates `~/.local/share/urchin/ephemeral.lock`
+- **Deactivate**: `urchin_ephemeral(action: "end")` removes the flag file
+
+Because the flag file is checked by both `urchin-mcp` and `urchin-intake` on every ingest request, ephemeral mode is cross-process. Activating it from a Copilot session suppresses writes from a simultaneously running Claude session too.
+
+<Warning>
+Events dropped during ephemeral mode are permanently gone. There is no buffer or recovery path.
+</Warning>
+
+## MCP server
+
+`urchin mcp` launches a JSON-RPC 2.0 server over stdin/stdout. IDEs and agents connect to it as a subprocess via the MCP protocol. The server exposes 10 tools — see [MCP Overview](/urchin/api/mcp-overview).
+
+The MCP server reads the journal by loading all events into memory on each query. There is no SQLite index or daemon required. This keeps the architecture simple at the cost of linear read time — acceptable for typical journal sizes (tens of thousands of events).
+
+## Vault projection
+
+`urchin vault project` writes a summarised block of the day's events into:
+
+```
+~/brain/daily/YYYY-MM-DD.md
+```
+
+Writes are scoped to idempotent `<!-- URCHIN:start -->` / `<!-- URCHIN:end -->` marker blocks. Content outside those markers is never touched. Running the projection twice on the same day is safe.
+
+## Identity
+
+`Identity::resolve()` produces the `Actor` envelope attached to events created by CLI and MCP tools:
+
+- `account` — `$URCHIN_ACCOUNT` → `$USER` → `"unknown"`
+- `device` — `$URCHIN_DEVICE` → `hostname` → `"unknown"`
+
+Identity is informational only. It is not used for auth.

@@ -1,0 +1,113 @@
+---
+title: "urchin_ingest"
+description: "Write an event to the journal from an MCP tool call."
+---
+
+## Schema
+
+```json
+{
+  "name": "urchin_ingest",
+  "inputSchema": {
+    "type": "object",
+    "required": ["content", "workspace"],
+    "properties": {
+      "content":   { "type": "string" },
+      "workspace": { "type": "string" },
+      "source":    { "type": "string" },
+      "kind":      { "type": "string" },
+      "title":     { "type": "string" },
+      "tags":      { "type": "array", "items": { "type": "string" } },
+      "session":   { "type": "string" }
+    }
+  }
+}
+```
+
+## Arguments
+
+<ParamField body="content" type="string" required>
+  The memory payload. Must not be blank.
+</ParamField>
+
+<ParamField body="workspace" type="string" required>
+  Absolute path to the repo or workspace this event belongs to. Must not be blank.
+</ParamField>
+
+<ParamField body="source" type="string" default="mcp">
+  Origin identifier. Examples: `"claude"`, `"copilot"`, `"agent"`. Defaults to `"mcp"` if omitted.
+</ParamField>
+
+<ParamField body="kind" type="string" default="conversation">
+  Event kind. Accepted values: `conversation`, `agent`, `command`, `commit`, `file`, `decision`. Any other string is stored as `Other(value)`. Defaults to `"conversation"`.
+</ParamField>
+
+<ParamField body="title" type="string">
+  Short human-readable title. Used in vault projections and status display.
+</ParamField>
+
+<ParamField body="tags" type="string[]">
+  Free-form tags. Example: `["architecture", "auth"]`
+</ParamField>
+
+<ParamField body="session" type="string">
+  Session identifier. Examples: Copilot session UUID, tmux session name.
+</ParamField>
+
+## Behaviour
+
+- If ephemeral mode is active, the event is not written and the tool returns `"(ephemeral mode: event suppressed)"` with `isError: false`.
+- The local identity (`account`, `device`) is attached as the `actor` field automatically.
+- The event is written directly to the journal file (not via the HTTP intake).
+
+## Success response
+
+```
+Recorded [claude]: Chose file-backed flag for cross-process ephemeral mode
+```
+
+If `title` is provided, the title is used in the response label. Otherwise the content is truncated to 60 chars.
+
+## Error response
+
+```json
+{
+  "content": [{"type": "text", "text": "content must not be empty"}],
+  "isError": true
+}
+```
+
+## Examples
+
+<CodeGroup>
+
+```json Minimal call
+{
+  "name": "urchin_ingest",
+  "arguments": {
+    "content": "Chose append-only JSONL for the journal — no migration overhead.",
+    "workspace": "/home/samhc/dev/orinadus/substrate/urchin-rust"
+  }
+}
+```
+
+```json Full call
+{
+  "name": "urchin_ingest",
+  "arguments": {
+    "content": "Chose file-backed flag for cross-process ephemeral mode. Flag at ~/.local/share/urchin/ephemeral.lock.",
+    "workspace": "/home/samhc/dev/orinadus/substrate/urchin-rust",
+    "source": "claude",
+    "kind": "decision",
+    "title": "Ephemeral mode design decision",
+    "tags": ["architecture", "ephemeral"],
+    "session": "session-abc123"
+  }
+}
+```
+
+</CodeGroup>
+
+<Note>
+Use `urchin_remember` instead if the event is not tied to a specific workspace — it does not require the `workspace` argument.
+</Note>

@@ -9,19 +9,23 @@
   "colors": {
     "primary": "#ededed",
     "light": "#ededed",
-    "dark": "#888888",
+    "dark": "#000000",
     "background": {
       "dark": "#000000",
       "light": "#000000"
-    },
-    "anchors": {
-      "from": "#888888",
-      "to": "#ededed"
     }
   },
   "modeToggle": {
     "default": "dark",
     "isHidden": true
+  },
+  "font": {
+    "headings": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
   },
   "topbarLinks": [
     {
@@ -31,39 +35,67 @@
   ],
   "topbarCtaButton": {
     "name": "GitHub",
-    "url": "https://github.com/orinadus-systems/urchin-rust"
+    "url": "https://github.com/orinadus-systems/urchin"
   },
   "tabs": [],
-  "anchors": [
-    {
-      "name": "GitHub",
-      "icon": "github",
-      "url": "https://github.com/orinadus-systems/urchin-rust"
-    }
-  ],
+  "anchors": [],
   "navigation": [
     {
-      "group": "Getting Started",
+      "group": "Urchin",
       "pages": [
-        "index"
-      ]
-    },
-    {
-      "group": "Urchin Substrate",
-      "pages": [
-        "api-reference"
+        "urchin/introduction",
+        "urchin/quickstart",
+        "urchin/how-it-works",
+        {
+          "group": "CLI",
+          "pages": [
+            "urchin/cli/ingest",
+            "urchin/cli/mcp",
+            "urchin/cli/serve",
+            "urchin/cli/collect",
+            "urchin/cli/doctor"
+          ]
+        },
+        {
+          "group": "Configuration",
+          "pages": [
+            "urchin/configuration/config-file",
+            "urchin/configuration/environment-variables"
+          ]
+        },
+        {
+          "group": "Collectors",
+          "pages": [
+            "urchin/collectors/overview",
+            "urchin/collectors/shell",
+            "urchin/collectors/git"
+          ]
+        },
+        {
+          "group": "Integrations",
+          "pages": [
+            "urchin/integrations/claude-code",
+            "urchin/integrations/vscode",
+            "urchin/integrations/http"
+          ]
+        },
+        {
+          "group": "API",
+          "pages": [
+            "urchin/api/http-health",
+            "urchin/api/http-ingest",
+            "urchin/api/mcp-overview",
+            "urchin/api/mcp-ingest",
+            "urchin/api/mcp-status",
+            "urchin/api/mcp-recent-activity",
+            "urchin/api/mcp-search",
+            "urchin/api/mcp-project-context"
+          ]
+        }
       ]
     }
   ],
   "footerSocials": {
     "github": "https://github.com/orinadus-systems"
-  },
-  "font": {
-    "headings": {
-      "family": "Inter"
-    },
-    "body": {
-      "family": "Inter"
-    }
   }
 }

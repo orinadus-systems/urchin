@@ -1,0 +1,91 @@
+---
+title: "urchin mcp"
+description: "Start the MCP server over stdio for IDE and agent integrations."
+---
+
+## Synopsis
+
+```bash
+urchin mcp
+```
+
+No flags. The server starts on stdin/stdout and runs until the parent process closes the pipe.
+
+## Protocol
+
+JSON-RPC 2.0 over stdio. Each message is a newline-terminated JSON object. The server speaks the [Model Context Protocol](https://modelcontextprotocol.io) — IDEs that support MCP (Cursor, Zed, VS Code with the Copilot extension) can connect by launching this command as a subprocess.
+
+## Tools exposed
+
+The server exposes 10 tools. See [MCP Overview](/urchin/api/mcp-overview) for the full list.
+
+## IDE configuration
+
+<Tabs>
+  <Tab title="VS Code / Copilot Chat">
+    Create `.vscode/mcp.json` in your workspace root:
+
+    ```json
+    {
+      "servers": {
+        "urchin": {
+          "type": "stdio",
+          "command": "urchin",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+
+    Restart VS Code. The MCP tools appear in Copilot Chat automatically.
+  </Tab>
+  <Tab title="Cursor">
+    Create or update `.cursor/mcp.json` at the repo root:
+
+    ```json
+    {
+      "mcpServers": {
+        "urchin": {
+          "command": "urchin",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+
+    Cursor picks this up when you open the folder.
+  </Tab>
+  <Tab title="Zed">
+    Add to `~/.config/zed/settings.json`:
+
+    ```json
+    {
+      "context_servers": {
+        "urchin": {
+          "command": {
+            "path": "urchin",
+            "args": ["mcp"]
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Requirements
+
+`urchin` must be on `PATH`. Install via:
+
+```bash
+cargo install --path crates/urchin-cli
+```
+
+Or add `~/.cargo/bin` to your `PATH` if you built locally.
+
+## Notes
+
+- The MCP server does not require `urchin serve` to be running. It reads and writes the journal file directly.
+- Each tool call reads the journal from disk. There is no in-memory cache between calls.
+- If the journal does not exist, query tools return empty results (not an error).
+- Errors from tool calls return `isError: true` in the MCP response envelope.

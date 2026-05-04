@@ -1,0 +1,102 @@
+---
+title: "Config File"
+description: "All configuration keys for ~/.config/urchin/config.toml."
+---
+
+## Location
+
+```
+~/.config/urchin/config.toml
+```
+
+The file is optional. All keys have defaults. A missing file is not an error. An incomplete file is fine — only the keys that are present override the defaults.
+
+## Keys
+
+<ParamField path="vault_root" type="path">
+  Absolute path to the vault (brain) directory. Vault projection writes daily notes here.
+
+  Default: `~/brain`
+</ParamField>
+
+<ParamField path="journal_path" type="path">
+  Absolute path to the JSONL journal file.
+
+  Default: `~/.local/share/urchin/journal/events.jsonl`
+
+  The parent directory is created automatically on first write.
+</ParamField>
+
+<ParamField path="cache_path" type="path">
+  Path to the event cache file used by certain query operations.
+
+  Default: `~/.local/share/urchin/event-cache.jsonl`
+</ParamField>
+
+<ParamField path="intake_port" type="integer">
+  TCP port the HTTP intake server binds on `127.0.0.1`.
+
+  Default: `18799`
+</ParamField>
+
+<ParamField path="intake_token" type="string">
+  Bearer token required on every `POST /ingest`. If not set, all requests from loopback are accepted without auth.
+
+  When set, requests must include `Authorization: Bearer <token>`. Missing or wrong token returns `401`.
+</ParamField>
+
+<ParamField path="cloud_url" type="string">
+  Full URL of the Orinadus cloud sync endpoint.
+
+  Example: `https://www.orinadus.com/api/urchin-sync`
+
+  No default. Cloud sync is disabled when this key is absent.
+</ParamField>
+
+<ParamField path="cloud_token" type="string">
+  Bearer token for the Orinadus cloud sync API. Required if `cloud_url` is set.
+</ParamField>
+
+<ParamField path="remote_host" type="string">
+  Optional remote host override. Used by certain SDK clients for non-standard routing.
+</ParamField>
+
+## Example file
+
+```toml
+# ~/.config/urchin/config.toml
+
+vault_root   = "/home/samhc/brain"
+journal_path = "/home/samhc/.local/share/urchin/journal/events.jsonl"
+intake_port  = 18799
+intake_token = "your-local-token"
+cloud_url    = "https://www.orinadus.com/api/urchin-sync"
+cloud_token  = "your-cloud-token"
+```
+
+## Precedence
+
+Configuration is layered. Later layers win:
+
+1. **Compiled defaults** — applied unconditionally
+2. **Config file** — keys present in `config.toml` override defaults
+3. **Environment variables** — override both file and defaults. See [Environment Variables](/urchin/configuration/environment-variables).
+
+## Editing via CLI
+
+```bash
+# Set a key directly (creates the file if it doesn't exist)
+urchin config set cloud_token your-token-here
+urchin config set intake_port 19000
+
+# View current resolved config
+urchin config show
+```
+
+`urchin config set` writes only to the TOML file. It does not affect environment variables.
+
+## Notes
+
+- Sensitive values (`cloud_token`, `intake_token`) are shown as `[set]` in `urchin doctor` output — the actual values are never printed.
+- The file is parsed with TOML. Strings must be quoted. Integers must not be quoted.
+- Unknown keys in the file are silently ignored.

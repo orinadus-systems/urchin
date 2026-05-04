@@ -1,0 +1,78 @@
+---
+title: "urchin ingest"
+description: "Write a single event to the journal from the command line."
+---
+
+## Synopsis
+
+```bash
+urchin ingest --content <TEXT> [OPTIONS]
+```
+
+## Flags
+
+<ParamField path="--content" type="string" required>
+  The event payload. Must be non-empty. Short form: `-c`.
+</ParamField>
+
+<ParamField path="--source" type="string">
+  Source identifier for the event (e.g. `cli`, `claude`, `script`). Defaults to `cli` when called from the binary. Short form: `-s`.
+</ParamField>
+
+<ParamField path="--workspace" type="string">
+  Absolute path to the repo or workspace this event belongs to. Short form: `-w`.
+</ParamField>
+
+<ParamField path="--title" type="string">
+  Short human-readable title for display in vault projections. Short form: `-t`.
+</ParamField>
+
+<ParamField path="--tags" type="string">
+  Comma-separated list of tags. Short form: `-T`.
+
+  ```bash
+  --tags architecture,auth,substrate
+  ```
+</ParamField>
+
+<ParamField path="--kind" type="string" default="conversation">
+  Event kind. Accepted values: `conversation`, `agent`, `command`, `commit`, `file`, `decision`. Any other string is stored as `Other(value)`. Short form: `-k`.
+</ParamField>
+
+## Behaviour
+
+- Reads config from `~/.config/urchin/config.toml` (or env overrides) to locate the journal.
+- Writes directly to the journal file — does **not** go through the HTTP intake server.
+- Attaches the local identity (`account`, `device`) as the `actor` field.
+- Exits 0 on success, non-zero on write failure.
+
+## Examples
+
+<CodeGroup>
+
+```bash Minimal
+urchin ingest --content "Fixed the memory leak in the event loop"
+```
+
+```bash With metadata
+urchin ingest \
+  --content "Chose file-backed flag for cross-process ephemeral mode" \
+  --source claude \
+  --workspace /home/user/dev/orinadus/substrate/urchin-rust \
+  --title "Ephemeral design decision" \
+  --tags architecture,ephemeral \
+  --kind decision
+```
+
+```bash Pipeline capture
+git log --oneline -5 | urchin ingest --content "$(cat)" --kind commit --source git
+```
+
+</CodeGroup>
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Event written successfully |
+| `1` | Config load error, journal write error, or invalid arguments |

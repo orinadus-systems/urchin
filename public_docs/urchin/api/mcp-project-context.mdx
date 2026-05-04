@@ -1,0 +1,113 @@
+---
+title: "urchin_project_context"
+description: "Return events matching a project name or tag substring within a time window."
+---
+
+## Schema
+
+```json
+{
+  "name": "urchin_project_context",
+  "inputSchema": {
+    "type": "object",
+    "required": ["project"],
+    "properties": {
+      "project": { "type": "string" },
+      "hours":   { "type": "number" },
+      "limit":   { "type": "number" }
+    },
+    "additionalProperties": false
+  }
+}
+```
+
+## Arguments
+
+<ParamField body="project" type="string" required>
+  Project name or substring to match against. Case-insensitive. Matched against:
+  - `content` (substring match)
+  - `tags` (any tag contains the substring)
+  - `workspace` path (substring match)
+
+  Must not be blank.
+</ParamField>
+
+<ParamField body="hours" type="number" default="168">
+  Look back this many hours. Default is 168 (1 week).
+</ParamField>
+
+<ParamField body="limit" type="number" default="30">
+  Maximum number of results. Applied after time and content filtering.
+</ParamField>
+
+## Behaviour
+
+1. Reads all events from the journal.
+2. Filters to events within the `hours` window.
+3. Filters to events where `project` appears (case-insensitive) in `content`, any `tag`, or `workspace`.
+4. Returns the most recent `limit` matching events, newest first.
+
+This is broader than `urchin_search` — it matches across multiple fields simultaneously, making it suitable for surfacing all activity related to a named project regardless of where the project name appears.
+
+## Success response
+
+One line per matching event:
+
+```
+[2026-05-04T20:00:00Z] claude — urchin ephemeral mode design: use file-backed flag
+[2026-05-04T18:30:00Z] git — feat: add ephemeral cross-process lock file
+[2026-05-04T17:00:00Z] shell — cargo test -p urchin-intake
+```
+
+Returns an empty string if no events match.
+
+## Example calls
+
+<CodeGroup>
+
+```json By project name
+{
+  "name": "urchin_project_context",
+  "arguments": {
+    "project": "urchin"
+  }
+}
+```
+
+```json Narrow window
+{
+  "name": "urchin_project_context",
+  "arguments": {
+    "project": "orinadus-platform",
+    "hours": 72,
+    "limit": 20
+  }
+}
+```
+
+```json By tag
+{
+  "name": "urchin_project_context",
+  "arguments": {
+    "project": "architecture",
+    "hours": 720
+  }
+}
+```
+
+</CodeGroup>
+
+## Error response
+
+```json
+{
+  "content": [{"type": "text", "text": "project must not be empty"}],
+  "isError": true
+}
+```
+
+## Difference from urchin_workspace_context
+
+`urchin_project_context` matches on project **name** (content, tags, or workspace substring). Use it when you know the project name but not the exact workspace path.
+
+`urchin_workspace_context` matches on the **exact workspace path prefix** — use it at the start of a coding session when you know the repo path.

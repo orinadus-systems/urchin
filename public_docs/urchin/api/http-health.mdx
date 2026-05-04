@@ -1,0 +1,57 @@
+---
+title: "GET /health"
+description: "Check intake server liveness and current journal state."
+---
+
+## Endpoint
+
+```http
+GET /health HTTP/1.1
+Host: 127.0.0.1:18799
+```
+
+No authentication required. No request body.
+
+## Response — 200 OK
+
+```json
+{
+  "status": "ok",
+  "events": 1042,
+  "ephemeral": false
+}
+```
+
+<ResponseField name="status" type="string">
+  Always `"ok"` if the server is running and able to respond. There is no `"error"` state — the server either responds or it doesn't.
+</ResponseField>
+
+<ResponseField name="events" type="integer">
+  Current event count from `Journal::stats()`. Returns `0` if the journal file does not exist or if `stats()` fails (e.g. permission error). Never returns an error for journal read failures.
+</ResponseField>
+
+<ResponseField name="ephemeral" type="boolean">
+  Whether ephemeral (burn) mode is currently active. When `true`, `POST /ingest` requests return `202` and are discarded without writing to disk.
+</ResponseField>
+
+## Example
+
+```bash
+curl -s http://127.0.0.1:18799/health
+```
+
+```json
+{"status":"ok","events":1042,"ephemeral":false}
+```
+
+## Use cases
+
+- Liveness check in a health monitor or systemd unit
+- Verify the server started before sending ingest requests
+- Check whether ephemeral mode is active from outside the MCP session
+
+## Notes
+
+- The journal path is intentionally not included in the response. Use `urchin doctor` or `urchin_status` (MCP) to get it.
+- The `events` count is read from the journal on every request. There is no cached counter.
+- This endpoint does not require `urchin serve` to be running if you're calling it from the same process — but in practice, it is always served by `urchin serve`.

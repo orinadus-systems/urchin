@@ -1,0 +1,64 @@
+---
+title: "Introduction"
+description: "Urchin is a local-first memory substrate that collects signals from every AI tool and exposes them through a unified journal."
+---
+
+Claude, Copilot, Gemini, Codex, OpenCode, the shell, git — each tool keeps its own history and none of them share it. Urchin runs locally, collects events from every tool into a single append-only journal, and exposes that journal over MCP and HTTP so any agent, IDE, or script can read what every other tool did.
+
+Urchin does not own your tools. It connects them.
+
+## What it does
+
+- **Collects** — passive pull collectors for shell history, git commits, Claude, Copilot, Gemini, Codex, OpenCode, and local models. Read-only. No write-back to source tools.
+- **Stores** — events land in an append-only JSONL journal at `~/.local/share/urchin/journal/events.jsonl`. Events are never mutated.
+- **Exposes** — an MCP server (stdio, JSON-RPC 2.0) for IDE integrations, and an HTTP intake server for SDK and script ingestion.
+
+## What it does not do
+
+- It does not replace or wrap your tools.
+- It does not modify your shell config, git hooks, or IDE settings automatically.
+- It does not send data anywhere by default. Cloud sync requires an explicit `cloud_token`.
+
+## Architecture overview
+
+```
+Collectors (read-only)      Journal (append-only JSONL)      Consumers
+────────────────────        ──────────────────────────        ──────────────────────
+shell / git / claude   →    ~/.local/share/urchin/           MCP (stdio)
+copilot / gemini       →    journal/events.jsonl       →    HTTP GET
+codex / opencode       →                                     vault projection
+HTTP POST /ingest      →                                     cloud sync
+```
+
+## Crate structure
+
+| Crate | Role |
+|---|---|
+| `urchin-core` | Pure types: `Event`, `Journal`, `Config`, `Identity`. Zero I/O except journal reads/writes. |
+| `urchin-intake` | Axum HTTP daemon. `POST /ingest`, `GET /health`. Binds `127.0.0.1:18799`. |
+| `urchin-mcp` | MCP stdio server. 10 tools over JSON-RPC 2.0. |
+| `urchin-collectors` | Shell, git, Claude, Copilot, Gemini, Codex, OpenCode, local-model collectors. |
+| `urchin-vault` | Projects events into `~/brain` daily notes inside marker-guarded blocks. |
+| `urchin-agent` | ReAct reflection loop: load context → synthesise → write Agent event back. |
+| `urchin-sdk` | HTTP client for urchin-intake and Orinadus cloud hub. |
+| `urchin-cli` | Single binary `urchin`. All subcommands. |
+
+## Event model
+
+Every unit of memory is an `Event`:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | UUID v4 string | Yes | Generate client-side. Deduplication key. |
+| `timestamp` | ISO 8601 UTC | Yes | RFC 3339 format. |
+| `source` | string | Yes | `claude`, `copilot`, `shell`, `git`, `mcp`, `cli`, etc. |
+| `kind` | enum string | Yes | `conversation` / `agent` / `command` / `commit` / `file` / `decision` |
+| `content` | string | Yes | The memory payload. Must not be blank. |
+| `workspace` | string | No | Absolute path to repo or workspace. |
+| `session` | string | No | Session identifier. |
+| `title` | string | No | Short display title. |
+| `tags` | string[] | No | Free-form tags. Omitted from JSONL when empty. |
+| `actor` | Actor object | No | `{ account, device, workspace }` — all optional. |
+| `brain` | string | No | Vault identifier for multi-brain setups. |
+
+`None`/empty optional fields are omitted from the JSONL output. No null values are written to disk.

@@ -1,0 +1,152 @@
+---
+title: "Quickstart"
+description: "Build the binary, verify the setup, run the daemon, and connect your first IDE."
+---
+
+## 1. Build
+
+```bash
+git clone https://github.com/orinadus-systems/urchin
+cd urchin
+cargo build
+```
+
+The binary lands at `target/debug/urchin`. For a release build:
+
+```bash
+cargo build --release
+# → target/release/urchin
+```
+
+To install to `~/.cargo/bin` (puts `urchin` on PATH):
+
+```bash
+cargo install --path crates/urchin-cli
+```
+
+## 2. Verify
+
+```bash
+urchin doctor
+```
+
+Output shows identity (account + device), config source, vault path, journal path, intake port, and current journal stats. If the journal does not exist yet, event count will be 0 — that is normal.
+
+## 3. Start the daemon
+
+```bash
+urchin serve
+```
+
+This starts:
+- The HTTP intake server on `127.0.0.1:18799`
+- A background collector tick loop that runs every configured collector
+
+The daemon runs in the foreground. Use a process supervisor or your shell's backgrounding to keep it running across sessions.
+
+Verify it is up:
+
+```bash
+curl http://127.0.0.1:18799/health
+```
+
+```json
+{"status":"ok","events":0,"ephemeral":false}
+```
+
+## 4. Ingest your first event
+
+```bash
+urchin ingest --content "First event" --source cli
+```
+
+Or via HTTP:
+
+```bash
+curl -s -X POST http://127.0.0.1:18799/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "00000000-0000-0000-0000-000000000001",
+    "timestamp": "2026-01-01T00:00:00Z",
+    "source": "cli",
+    "kind": "conversation",
+    "content": "First event"
+  }'
+```
+
+```json
+{"id":"00000000-0000-0000-0000-000000000001","status":"ok"}
+```
+
+## 5. Connect an IDE
+
+<Tabs>
+  <Tab title="VS Code / Copilot">
+    Create `.vscode/mcp.json` in your workspace:
+
+    ```json
+    {
+      "servers": {
+        "urchin": {
+          "type": "stdio",
+          "command": "urchin",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+
+    Restart VS Code. The Copilot Chat agent now has access to all 10 Urchin MCP tools.
+  </Tab>
+  <Tab title="Cursor">
+    The repo ships `.cursor/mcp.json`. Open the repo in Cursor and it picks up automatically.
+
+    ```json
+    {
+      "mcpServers": {
+        "urchin": {
+          "command": "urchin",
+          "args": ["mcp"]
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Zed">
+    Add to `~/.config/zed/settings.json`:
+
+    ```json
+    {
+      "context_servers": {
+        "urchin": {
+          "command": {
+            "path": "urchin",
+            "args": ["mcp"]
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+After connecting, run `urchin_status` in the assistant to confirm the substrate is reachable.
+
+## 6. Run a collector
+
+```bash
+# Shell history
+urchin collect shell
+
+# Git commits in a repo
+urchin collect git --repo /path/to/your/repo
+
+# All collectors at once
+urchin collect all
+```
+
+## Next steps
+
+- [How it works](/urchin/how-it-works) — journal internals, write safety, ephemeral mode
+- [Configuration](/urchin/configuration/config-file) — set vault path, journal path, tokens
+- [CLI reference](/urchin/cli/ingest) — all subcommands and flags
