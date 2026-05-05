@@ -97,5 +97,8 @@
   ],
   "footerSocials": {
     "github": "https://github.com/orinadus-systems"
-  }
+  },
+  "redirects": [
+    { "source": "/", "destination": "/urchin/introduction" }
+  ]
 }
