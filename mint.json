@@ -2,8 +2,8 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "Orinadus",
   "logo": {
-    "dark": "/logo/dark.svg",
-    "light": "/logo/light.svg"
+    "dark": "/logo/logo.png",
+    "light": "/logo/logo.png"
   },
   "favicon": "/favicon.svg",
   "colors": {
@@ -11,8 +11,8 @@
     "light": "#ededed",
     "dark": "#000000",
     "background": {
-      "dark": "#000000",
-      "light": "#000000"
+      "dark": "#050507",
+      "light": "#050507"
     }
   },
   "modeToggle": {
