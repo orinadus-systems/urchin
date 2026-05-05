@@ -43,53 +43,53 @@
     {
       "group": "Urchin",
       "pages": [
-        "public_docs/urchin/introduction",
-        "public_docs/urchin/quickstart",
-        "public_docs/urchin/how-it-works",
+        "urchin/introduction",
+        "urchin/quickstart",
+        "urchin/how-it-works",
         {
           "group": "CLI",
           "pages": [
-            "public_docs/urchin/cli/ingest",
-            "public_docs/urchin/cli/mcp",
-            "public_docs/urchin/cli/serve",
-            "public_docs/urchin/cli/collect",
-            "public_docs/urchin/cli/doctor"
+            "urchin/cli/ingest",
+            "urchin/cli/mcp",
+            "urchin/cli/serve",
+            "urchin/cli/collect",
+            "urchin/cli/doctor"
           ]
         },
         {
           "group": "Configuration",
           "pages": [
-            "public_docs/urchin/configuration/config-file",
-            "public_docs/urchin/configuration/environment-variables"
+            "urchin/configuration/config-file",
+            "urchin/configuration/environment-variables"
           ]
         },
         {
           "group": "Collectors",
           "pages": [
-            "public_docs/urchin/collectors/overview",
-            "public_docs/urchin/collectors/shell",
-            "public_docs/urchin/collectors/git"
+            "urchin/collectors/overview",
+            "urchin/collectors/shell",
+            "urchin/collectors/git"
           ]
         },
         {
           "group": "Integrations",
           "pages": [
-            "public_docs/urchin/integrations/claude-code",
-            "public_docs/urchin/integrations/vscode",
-            "public_docs/urchin/integrations/http"
+            "urchin/integrations/claude-code",
+            "urchin/integrations/vscode",
+            "urchin/integrations/http"
           ]
         },
         {
           "group": "API",
           "pages": [
-            "public_docs/urchin/api/http-health",
-            "public_docs/urchin/api/http-ingest",
-            "public_docs/urchin/api/mcp-overview",
-            "public_docs/urchin/api/mcp-ingest",
-            "public_docs/urchin/api/mcp-status",
-            "public_docs/urchin/api/mcp-recent-activity",
-            "public_docs/urchin/api/mcp-search",
-            "public_docs/urchin/api/mcp-project-context"
+            "urchin/api/http-health",
+            "urchin/api/http-ingest",
+            "urchin/api/mcp-overview",
+            "urchin/api/mcp-ingest",
+            "urchin/api/mcp-status",
+            "urchin/api/mcp-recent-activity",
+            "urchin/api/mcp-search",
+            "urchin/api/mcp-project-context"
           ]
         }
       ]
