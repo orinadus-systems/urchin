@@ -41,6 +41,10 @@
   "anchors": [],
   "navigation": [
     {
+      "group": " ",
+      "pages": ["index"]
+    },
+    {
       "group": "Urchin",
       "pages": [
         "urchin/introduction",
