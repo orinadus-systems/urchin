@@ -5,9 +5,10 @@
 **The universal substrate. Every tool, one memory.**
 
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
-![Status](https://img.shields.io/badge/status-v0.2.0--dev-brightgreen)
+![Status](https://img.shields.io/badge/status-v0.3.4-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
-![Tests](https://img.shields.io/badge/tests-96%20passing-success)
+![Tests](https://img.shields.io/badge/tests-108%20passing-success)
+![CI](https://github.com/orinadus-systems/urchin/actions/workflows/ci.yml/badge.svg)
 
 </div>
 
@@ -103,8 +104,18 @@ Collectors are passive readers. They never write back to source tools. The journ
 | OpenCode collector | ✅ shipped | `~/.local/share/opencode/opencode.db`, message JOIN session, user-role filter |
 | Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file — Ollama, llama.cpp, any harness |
 | `urchin-agent` Reasoner trait | ✅ shipped | `EchoReasoner` (deterministic), `HttpReasoner` (Ollama-compat via `URCHIN_REASONER_URL`) |
+| Ephemeral mode | ✅ shipped | `EphemeralMode` — file-backed flag + in-process `AtomicBool`, cross-process aware |
+| Intake auth | ✅ shipped | Optional Bearer token (`URCHIN_INTAKE_TOKEN`), loopback-only |
+| Journal write lock | ✅ shipped | `std::sync::Mutex<()>` — prevents intra-process line interleaving |
+| SQLite projection index | 🔲 planned | Dual-write alongside JSONL for O(log n) queries |
+| Lockless async intake | 🔲 planned | Tokio MPSC channel — high-throughput concurrent writes |
+| OS-level collectors | 🔲 planned | Active window, inotify file watcher, AI traffic interceptor |
+| WebView intercept | 🔲 planned | Phase 3 — Tauri captures ChatGPT/Gemini/Claude web natively |
+| Vector embeddings | 🔲 planned | Phase 4 — upgrades `urchin_semantic_search` from token-cosine to real vectors |
+| `.urchinignore` runtime | 🔲 planned | Phase 5 — spec exists in `SOVEREIGNTY.md`, not yet wired |
+| Multi-device sync | 🔲 planned | Phase 6 — deterministic chunk sync |
 
-**96 tests** across `urchin-core` (7), `urchin-intake` (2), `urchin-mcp` (17), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (15).
+**108 tests** across `urchin-core` (10), `urchin-intake` (8), `urchin-mcp` (20), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (15).
 
 ---
 
@@ -161,7 +172,7 @@ Urchin reads from this file; it never writes to it. The collector is a no-op whe
 crates/
   urchin-core        zero I/O: Event, Journal, Identity, Config
   urchin-intake      axum: POST /ingest, GET /health (127.0.0.1:18799)
-  urchin-mcp         MCP over stdio: 9 tools, JSON-RPC 2.0
+  urchin-mcp         MCP over stdio: 10 tools, JSON-RPC 2.0
   urchin-collectors  shell, git, claude, copilot, gemini, codex, opencode, local-model — all live
   urchin-vault       vault projection: writes marker blocks into ~/brain
   urchin-agent       ReAct skeleton: load context, synthesise, write back as Agent event
@@ -200,6 +211,7 @@ Append-only JSONL. Events are never mutated. Unknown fields are ignored on read.
 | `urchin_remember` | `content`, `tags?`, `workspace?` | quick-capture without required workspace |
 | `urchin_ephemeral` | `action: start\|end\|status` | burn mode — suppresses all writes until `end` |
 | `urchin_agent_reflect` | `goal`, `hours?`, `limit?` | ReAct reflection: load context, synthesise, write back to journal |
+| `urchin_semantic_search` | `query`, `limit?` | Token-cosine similarity search (vector embeddings in Phase 4) |
 
 Errors return `isError: true`. Queries return one line per event: `[timestamp] source — content`.
 

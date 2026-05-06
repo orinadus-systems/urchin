@@ -213,23 +213,16 @@ Users own their substrate. Retention through superior routing, not data lock-in.
 
 ---
 
-## Phase 6 — Multi-Device + Orinadus Academia 🔲
+## Phase 6 — Multi-Device Sync 🔲
 
 **Status:** planned  
 **Dependency:** Phase 5 (sovereignty must be solid before multi-device)
 
-### Multi-device sync
-
 The journal is the canonical source of truth. Sync protocol:
-- `urchin push` — sends new events to the relay
-- `urchin pull` — fetches events from other devices, deduplicates by event ID
+- Deterministic content-addressed chunking — only stream deltas between devices, not full journal push
+- `urchin push` — sends new event chunks to the relay
+- `urchin pull` — fetches chunks from other devices, deduplicates by event ID
 - Relay is end-to-end encrypted; Orinadus sees only ciphertext
-
-### Orinadus Academia
-
-Opt-in multi-tenant cloud layer. Organizations can share context across team members
-with explicit consent boundaries. The organization owns the relay key; no individual
-event content is readable by Orinadus infrastructure.
 
 ---
 
