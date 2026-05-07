@@ -7,7 +7,7 @@
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
 ![Status](https://img.shields.io/badge/status-v0.3.4-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
-![Tests](https://img.shields.io/badge/tests-108%20passing-success)
+![Tests](https://img.shields.io/badge/tests-138%20passing-success)
 ![CI](https://github.com/orinadus-systems/urchin/actions/workflows/ci.yml/badge.svg)
 
 </div>
@@ -106,16 +106,15 @@ Collectors are passive readers. They never write back to source tools. The journ
 | `urchin-agent` Reasoner trait | ✅ shipped | `EchoReasoner` (deterministic), `HttpReasoner` (Ollama-compat via `URCHIN_REASONER_URL`) |
 | Ephemeral mode | ✅ shipped | `EphemeralMode` — file-backed flag + in-process `AtomicBool`, cross-process aware |
 | Intake auth | ✅ shipped | Optional Bearer token (`URCHIN_INTAKE_TOKEN`), loopback-only |
-| Journal write lock | ✅ shipped | `std::sync::Mutex<()>` — prevents intra-process line interleaving |
-| SQLite projection index | 🔲 planned | Dual-write alongside JSONL for O(log n) queries |
-| Lockless async intake | 🔲 planned | Tokio MPSC channel — high-throughput concurrent writes |
+| Lockless intake pipe | ✅ shipped | Tokio MPSC unbounded channel, background writer thread, `flush()` on all write paths — 138 tests |
+| SQLite projection index | ✅ shipped | WAL mode, batch INSERT per flush, O(log n) queries, `urchin rebuild-index` command |
 | OS-level collectors | 🔲 planned | Active window, inotify file watcher, AI traffic interceptor |
 | WebView intercept | 🔲 planned | Phase 3 — Tauri captures ChatGPT/Gemini/Claude web natively |
 | Vector embeddings | 🔲 planned | Phase 4 — upgrades `urchin_semantic_search` from token-cosine to real vectors |
 | `.urchinignore` runtime | 🔲 planned | Phase 5 — spec exists in `SOVEREIGNTY.md`, not yet wired |
 | Multi-device sync | 🔲 planned | Phase 6 — deterministic chunk sync |
 
-**108 tests** across `urchin-core` (10), `urchin-intake` (8), `urchin-mcp` (20), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (15).
+**138 tests** across `urchin-core` (26), `urchin-intake` (8), `urchin-mcp` (20), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (29).
 
 ---
 
@@ -151,6 +150,7 @@ cargo build                        # → target/debug/urchin
 | `urchin query <text>` | keyword search across journal |
 | `urchin vault project [--date YYYY-MM-DD]` | project today's events into brain daily note |
 | `urchin sync` | push journal to cloud |
+| `urchin rebuild-index` | wipe and rebuild SQLite index from JSONL source of truth |
 
 ### Local model drop file
 

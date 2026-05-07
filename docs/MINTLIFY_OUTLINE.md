@@ -56,6 +56,7 @@ CLI Reference
   urchin vault project
   urchin agent reflect
   urchin sync / pull
+  urchin rebuild-index
   urchin config
 
 Configuration
@@ -68,6 +69,7 @@ Architecture
   Process Topology
   Event Schema
   Journal Format (JSONL)
+  SQLite Projection Index
   Checkpoint System
 
 Sovereignty
@@ -101,8 +103,9 @@ Roadmap
 | MCP Overview + IDE Setup | 🔲 needs writing | README IDE Setup section |
 | MCP — all 10 tools | 🔲 needs writing | `crates/urchin-mcp/src/tools.rs` schemas |
 | API Reference | 🔲 needs writing | `docs/API_REFERENCE.md` (port directly) |
-| CLI Reference | 🔲 needs writing | `crates/urchin-cli/src/main.rs` clap defs |
-| Architecture | 🔲 needs writing | `docs/ARCHITECTURE.md` (port directly) |
+| CLI Reference | 🔲 needs writing | `crates/urchin-cli/src/main.rs` clap defs — includes `rebuild-index` |
+| Architecture — SQLite Index | 🔲 needs writing | `crates/urchin-core/src/index.rs` — WAL, schema, rebuild |
+| Architecture — other | 🔲 needs writing | `docs/ARCHITECTURE.md` (port directly) |
 | Event Schema | 🔲 needs writing | `crates/urchin-core/src/event.rs` |
 | Sovereignty — Ephemeral | 🔲 needs writing | `crates/urchin-core/src/ephemeral.rs` + `SOVEREIGNTY.md` |
 | Roadmap | 🔲 needs writing | `ROADMAP.md` (port with phase status markers) |

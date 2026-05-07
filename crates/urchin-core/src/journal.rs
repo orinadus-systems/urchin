@@ -3,8 +3,10 @@
 
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 use anyhow::Result;
 use crate::event::Event;
+use crate::index::{build_index_row, Index, IndexRow};
 
 enum JournalOp {
     Append(String),
@@ -12,8 +14,9 @@ enum JournalOp {
 }
 
 pub struct Journal {
-    path: PathBuf,
-    tx: tokio::sync::mpsc::UnboundedSender<JournalOp>,
+    path:  PathBuf,
+    tx:    tokio::sync::mpsc::UnboundedSender<JournalOp>,
+    index: Option<Arc<Index>>,
 }
 
 pub struct JournalStats {
@@ -34,33 +37,82 @@ fn open_writer(path: &PathBuf) -> BufWriter<std::fs::File> {
     BufWriter::new(f)
 }
 
-impl Journal {
-    pub fn new(path: PathBuf) -> Self {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<JournalOp>();
-        let writer_path = path.clone();
-        std::thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
-                .build()
-                .expect("journal: failed to build writer runtime")
-                .block_on(async move {
-                    let mut file: Option<BufWriter<std::fs::File>> = None;
-                    while let Some(op) = rx.recv().await {
-                        match op {
-                            JournalOp::Append(line) => {
-                                let f = file.get_or_insert_with(|| open_writer(&writer_path));
-                                let _ = writeln!(f, "{}", line);
-                            }
-                            JournalOp::Flush(ack) => {
-                                if let Some(f) = &mut file {
-                                    let _ = f.flush();
+fn spawn_writer(
+    path:      PathBuf,
+    index_opt: Option<Arc<Index>>,
+) -> tokio::sync::mpsc::UnboundedSender<JournalOp> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<JournalOp>();
+    let writer_path  = path;
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("journal: failed to build writer runtime")
+            .block_on(async move {
+                let mut file: Option<BufWriter<std::fs::File>> = None;
+                // Track write position for the index byte_offset column.
+                // Initialise from the current file size so we pick up where
+                // a previous run left off; 0 if the file does not exist yet.
+                let mut byte_offset: u64 =
+                    std::fs::metadata(&writer_path).map(|m| m.len()).unwrap_or(0);
+                let mut pending_rows: Vec<IndexRow> = Vec::new();
+
+                while let Some(op) = rx.recv().await {
+                    match op {
+                        JournalOp::Append(line) => {
+                            let f = file.get_or_insert_with(|| open_writer(&writer_path));
+                            let start = byte_offset;
+                            let _ = writeln!(f, "{}", line);
+                            byte_offset += line.len() as u64 + 1; // +1 for '\n'
+
+                            if index_opt.is_some() {
+                                if let Some(row) = build_index_row(&line, start) {
+                                    pending_rows.push(row);
                                 }
-                                let _ = ack.send(());
                             }
                         }
+                        JournalOp::Flush(ack) => {
+                            // 1. Flush JSONL first — always, unconditionally.
+                            if let Some(f) = &mut file {
+                                let _ = f.flush();
+                            }
+                            // 2. Batch-insert pending rows into SQLite (best-effort).
+                            //    An index error must never block the ack or crash the daemon.
+                            if let Some(ref idx) = index_opt {
+                                if !pending_rows.is_empty() {
+                                    if let Err(e) = idx.insert_batch(&pending_rows) {
+                                        tracing::warn!("index insert failed (JSONL intact): {}", e);
+                                    }
+                                }
+                            }
+                            pending_rows.clear();
+                            // 3. Always ack — callers must not hang on SQLite errors.
+                            let _ = ack.send(());
+                        }
                     }
-                });
-        });
-        Self { path, tx }
+                }
+            });
+    });
+    tx
+}
+
+impl Journal {
+    /// Create a journal with no SQLite index. All writes go to JSONL only.
+    /// Query methods fall back to a full JSONL scan.
+    /// Use this in tests and lightweight one-shot CLI commands.
+    pub fn new(path: PathBuf) -> Self {
+        let tx = spawn_writer(path.clone(), None);
+        Self { path, tx, index: None }
+    }
+
+    /// Create a journal backed by a SQLite projection index.
+    /// The index is created and schema-initialised at `index_path` if it does
+    /// not exist. Query methods hit SQLite instead of scanning JSONL.
+    /// Falls through to `Journal::new` style if the index cannot be opened.
+    pub fn new_with_index(path: PathBuf, index_path: PathBuf) -> Result<Self> {
+        let index = Arc::new(Index::open(&index_path)?);
+        index.ensure_schema()?;
+        let tx = spawn_writer(path.clone(), Some(Arc::clone(&index)));
+        Ok(Self { path, tx, index: Some(index) })
     }
 
     pub fn default_path() -> PathBuf {
@@ -184,6 +236,51 @@ impl Journal {
             .filter_map(|l| serde_json::from_str(l).ok())
             .collect();
         Ok((events, file_len))
+    }
+
+    /// Recent events, newest-first. Uses the SQLite index when available,
+    /// otherwise falls back to a full JSONL scan.
+    pub fn query_recent(&self, hours: f64, source: Option<&str>, limit: usize) -> Result<Vec<Event>> {
+        if let Some(ref idx) = self.index {
+            idx.query_recent(hours, source, limit)
+        } else {
+            let events = self.read_all()?;
+            Ok(crate::query::recent(&events, hours, source, limit)
+                .into_iter().cloned().collect())
+        }
+    }
+
+    /// Content substring search. Uses the SQLite index when available.
+    pub fn query_search(&self, q: &str, hours: f64, limit: usize) -> Result<Vec<Event>> {
+        if let Some(ref idx) = self.index {
+            idx.query_search(q, hours, limit)
+        } else {
+            let events = self.read_all()?;
+            Ok(crate::query::search_content(&events, q, hours, limit)
+                .into_iter().cloned().collect())
+        }
+    }
+
+    /// Project-scoped events. Uses the SQLite index when available.
+    pub fn query_project(&self, project: &str, hours: f64, limit: usize) -> Result<Vec<Event>> {
+        if let Some(ref idx) = self.index {
+            idx.query_project(project, hours, limit)
+        } else {
+            let events = self.read_all()?;
+            Ok(crate::query::project_context(&events, project, hours, limit)
+                .into_iter().cloned().collect())
+        }
+    }
+
+    /// Workspace-scoped events. Uses the SQLite index when available.
+    pub fn query_workspace(&self, path: &str, hours: f64, limit: usize) -> Result<Vec<Event>> {
+        if let Some(ref idx) = self.index {
+            idx.query_workspace(path, hours, limit)
+        } else {
+            let events = self.read_all()?;
+            Ok(crate::query::workspace_context(&events, path, hours, limit)
+                .into_iter().cloned().collect())
+        }
     }
 
     /// Fast stats: raw byte scan for line count, tail seek for last event.
@@ -343,6 +440,50 @@ mod tests {
         journal.flush().unwrap();
         let window = journal.read_window(10, 5).unwrap();
         assert!(window.is_empty());
+    }
+
+    #[test]
+    fn journal_with_index_query_recent() {
+        let dir          = tempfile::tempdir().unwrap();
+        let journal_path = dir.path().join("events.jsonl");
+        let index_path   = dir.path().join("index.db");
+        let journal      = Journal::new_with_index(journal_path, index_path).unwrap();
+
+        journal.append(&Event::new("cli", EventKind::Conversation, "hello index")).unwrap();
+        journal.flush().unwrap();
+
+        let events = journal.query_recent(1.0, None, 10).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].content, "hello index");
+    }
+
+    #[test]
+    fn journal_with_index_query_search() {
+        let dir          = tempfile::tempdir().unwrap();
+        let journal_path = dir.path().join("events.jsonl");
+        let index_path   = dir.path().join("index.db");
+        let journal      = Journal::new_with_index(journal_path, index_path).unwrap();
+
+        journal.append(&Event::new("cli", EventKind::Conversation, "needle in a haystack")).unwrap();
+        journal.append(&Event::new("cli", EventKind::Conversation, "something unrelated")).unwrap();
+        journal.flush().unwrap();
+
+        let hits = journal.query_search("needle", 1.0, 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].content, "needle in a haystack");
+    }
+
+    #[test]
+    fn journal_without_index_falls_back() {
+        let tmp     = NamedTempFile::new().unwrap();
+        let journal = Journal::new(tmp.path().to_path_buf());
+        journal.append(&Event::new("cli", EventKind::Conversation, "fallback test")).unwrap();
+        journal.flush().unwrap();
+
+        // query_recent should fall back to JSONL scan when no index is present.
+        let events = journal.query_recent(1.0, None, 10).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].content, "fallback test");
     }
 
     #[test]

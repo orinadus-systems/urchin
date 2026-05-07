@@ -86,6 +86,8 @@ enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
+    /// Rebuild the SQLite projection index from the JSONL journal
+    RebuildIndex,
 }
 
 #[derive(Subcommand)]
@@ -176,6 +178,7 @@ async fn main() -> Result<()> {
         Commands::Sync => sync().await,
         Commands::Pull { limit } => pull(limit).await,
         Commands::Agent { action } => agent_cmd(action),
+        Commands::RebuildIndex => rebuild_index(),
     }
 }
 
@@ -659,18 +662,24 @@ fn config_cmd(action: ConfigAction) -> Result<()> {
     Ok(())
 }
 
+fn open_journal(journal_path: std::path::PathBuf) -> urchin_core::journal::Journal {
+    use urchin_core::journal::Journal;
+    let index_path = journal_path.with_file_name("index.db");
+    Journal::new_with_index(journal_path.clone(), index_path)
+        .unwrap_or_else(|_| Journal::new(journal_path))
+}
+
 fn recent(n: usize, source: Option<String>, hours: f64) -> Result<()> {
-    use urchin_core::{config::Config, journal::Journal, query};
+    use urchin_core::config::Config;
 
     let cfg     = Config::load();
-    let journal = Journal::new(cfg.journal_path);
-    let events  = journal.read_all()?;
-    let hits    = query::recent(&events, hours, source.as_deref(), n);
+    let journal = open_journal(cfg.journal_path);
+    let events  = journal.query_recent(hours, source.as_deref(), n)?;
 
-    if hits.is_empty() {
+    if events.is_empty() {
         println!("(no events in window)");
     } else {
-        for e in hits {
+        for e in &events {
             let ts = e.timestamp.format("%Y-%m-%dT%H:%M:%SZ");
             println!("{}  {}  {}", ts, e.source, truncate_line(&e.content, 100));
         }
@@ -679,27 +688,37 @@ fn recent(n: usize, source: Option<String>, hours: f64) -> Result<()> {
 }
 
 fn query(text: String, source: Option<String>, limit: usize, hours: f64) -> Result<()> {
-    use urchin_core::{config::Config, journal::Journal, query};
+    use urchin_core::config::Config;
 
     let cfg     = Config::load();
-    let journal = Journal::new(cfg.journal_path);
-    let events  = journal.read_all()?;
-    let mut hits = query::search_content(&events, &text, hours, limit);
+    let journal = open_journal(cfg.journal_path);
+    let mut events = journal.query_search(&text, hours, limit)?;
 
-    // Post-filter by source if given.
     if let Some(ref src) = source {
-        hits.retain(|e| e.source == *src);
+        events.retain(|e| e.source == *src);
     }
 
-    if hits.is_empty() {
+    if events.is_empty() {
         println!("(no matches)");
     } else {
-        println!("{} match(es) for {:?}:", hits.len(), text);
-        for e in hits {
+        println!("{} match(es) for {:?}:", events.len(), text);
+        for e in &events {
             let ts = e.timestamp.format("%Y-%m-%dT%H:%M:%SZ");
             println!("{}  {}  {}", ts, e.source, truncate_line(&e.content, 100));
         }
     }
+    Ok(())
+}
+
+fn rebuild_index() -> Result<()> {
+    use urchin_core::{config::Config, index::Index};
+
+    let cfg        = Config::load();
+    let index_path = cfg.journal_path.with_file_name("index.db");
+    let index      = Index::open(&index_path)?;
+    index.ensure_schema()?;
+    let n = index.rebuild_from_journal(&cfg.journal_path)?;
+    println!("rebuilt: {} events indexed", n);
     Ok(())
 }
 

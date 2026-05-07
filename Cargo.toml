@@ -25,3 +25,4 @@ uuid        = { version = "1", features = ["v4", "serde"] }
 notify      = "6"
 dirs        = "5"
 toml        = "0.8"
+rusqlite    = { version = "0.31", features = ["bundled"] }

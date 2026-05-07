@@ -8,3 +8,4 @@ pub mod config;
 pub mod governance;
 pub mod query;
 pub mod ephemeral;
+pub mod index;

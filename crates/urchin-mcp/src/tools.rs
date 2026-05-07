@@ -245,9 +245,9 @@ fn recent_activity(args: &Value, ctx: &ToolContext) -> Result<String> {
     let source = opt_str(args, "source");
     let limit  = opt_usize(args, "limit").unwrap_or(20);
 
-    let events   = ctx.journal.read_all()?;
-    let filtered = query::recent(&events, hours, source.as_deref(), limit);
-    Ok(query::format_events(&filtered))
+    let events = ctx.journal.query_recent(hours, source.as_deref(), limit)?;
+    let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
+    Ok(query::format_events(&refs))
 }
 
 fn project_context(args: &Value, ctx: &ToolContext) -> Result<String> {
@@ -255,9 +255,9 @@ fn project_context(args: &Value, ctx: &ToolContext) -> Result<String> {
     let hours   = opt_f64(args, "hours").unwrap_or(168.0);
     let limit   = opt_usize(args, "limit").unwrap_or(30);
 
-    let events   = ctx.journal.read_all()?;
-    let filtered = query::project_context(&events, &project, hours, limit);
-    Ok(query::format_events(&filtered))
+    let events = ctx.journal.query_project(&project, hours, limit)?;
+    let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
+    Ok(query::format_events(&refs))
 }
 
 fn search(args: &Value, ctx: &ToolContext) -> Result<String> {
@@ -265,9 +265,9 @@ fn search(args: &Value, ctx: &ToolContext) -> Result<String> {
     let hours     = opt_f64(args, "hours").unwrap_or(168.0);
     let limit     = opt_usize(args, "limit").unwrap_or(20);
 
-    let events   = ctx.journal.read_all()?;
-    let filtered = query::search_content(&events, &query_str, hours, limit);
-    Ok(query::format_events(&filtered))
+    let events = ctx.journal.query_search(&query_str, hours, limit)?;
+    let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
+    Ok(query::format_events(&refs))
 }
 
 fn workspace_context(args: &Value, ctx: &ToolContext) -> Result<String> {
@@ -275,12 +275,12 @@ fn workspace_context(args: &Value, ctx: &ToolContext) -> Result<String> {
     let hours = opt_f64(args, "hours").unwrap_or(168.0);
     let limit = opt_usize(args, "limit").unwrap_or(40);
 
-    let events   = ctx.journal.read_all()?;
-    let filtered = query::workspace_context(&events, &path, hours, limit);
-    if filtered.is_empty() {
+    let events = ctx.journal.query_workspace(&path, hours, limit)?;
+    if events.is_empty() {
         return Ok(format!("No events found for workspace: {}", path));
     }
-    Ok(format!("Events for {}:\n\n{}", path, query::format_events(&filtered)))
+    let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
+    Ok(format!("Events for {}:\n\n{}", path, query::format_events(&refs)))
 }
 
 fn remember(args: &Value, ctx: &ToolContext) -> Result<String> {

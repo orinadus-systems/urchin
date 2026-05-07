@@ -17,8 +17,14 @@ const SERVER_NAME:      &str = "urchin";
 const SERVER_VERSION:   &str = env!("CARGO_PKG_VERSION");
 
 pub async fn run(cfg: Config) -> Result<()> {
+    let index_path = cfg.journal_path.with_file_name("index.db");
+    let journal = Journal::new_with_index(cfg.journal_path.clone(), index_path)
+        .unwrap_or_else(|e| {
+            tracing::warn!("SQLite index unavailable, using JSONL fallback: {}", e);
+            Journal::new(cfg.journal_path.clone())
+        });
     let ctx = ToolContext {
-        journal:    Arc::new(Journal::new(cfg.journal_path.clone())),
+        journal:    Arc::new(journal),
         identity:   Arc::new(Identity::resolve()),
         config:     Arc::new(cfg),
         ephemeral:  Arc::new(AtomicBool::new(false)),

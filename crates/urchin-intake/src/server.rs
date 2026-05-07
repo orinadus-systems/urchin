@@ -33,8 +33,14 @@ pub struct AppState {
 
 impl AppState {
     pub fn from_config(cfg: &Config) -> Self {
+        let index_path = cfg.journal_path.with_file_name("index.db");
+        let journal = Journal::new_with_index(cfg.journal_path.clone(), index_path)
+            .unwrap_or_else(|e| {
+                tracing::warn!("SQLite index unavailable, using JSONL fallback: {}", e);
+                Journal::new(cfg.journal_path.clone())
+            });
         Self {
-            journal:      Arc::new(Journal::new(cfg.journal_path.clone())),
+            journal:      Arc::new(journal),
             journal_path: cfg.journal_path.clone(),
             identity:     Arc::new(Identity::resolve()),
             token:        cfg.intake_token.clone(),
