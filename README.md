@@ -14,10 +14,14 @@
 
 ---
 
-Claude, Copilot, Gemini, Codex, OpenCode, the shell, git — each tool has its own memory, none of them share. Urchin runs as a local daemon, collects signals from every tool into one append-only journal, and surfaces that journal through MCP and HTTP so any agent, IDE, or script can read what every other tool did.
+Talking to AI today is like working with the world's most capable engineer who has severe amnesia. Every session starts blank. You copy-paste the error log, the code, the decision from ten minutes ago. Every time.
+
+Your digital life is a house. AI today has a small window it can sometimes peek through: catching glimpses of the living room from outside, never seeing what's beyond. Urchin smashes through that window. It lives inside the house with you.
+
+Claude, Copilot, Gemini, Codex, OpenCode, the shell, git: each tool has its own memory. None of them share. Urchin runs as a silent local daemon, collects signals from every tool into one append-only journal, and surfaces that context through MCP and HTTP so any agent, IDE, or script can read what every other tool did.
 
 > Urchin does not own your tools. It connects them.
-> Additive. Passive. Nothing you already use loses anything.
+> Additive. Passive. Silent. Nothing you already use loses anything.
 
 ---
 
@@ -88,12 +92,12 @@ Collectors are passive readers. They never write back to source tools. The journ
 
 | Feature | Status | Notes |
 |---|---|---|
-| Core types + journal | ✅ shipped | `Event`, `Journal`, `Identity`, `Config` — append-only JSONL |
+| Core types + journal | ✅ shipped | `Event`, `Journal`, `Identity`, `Config`; append-only JSONL |
 | Identity envelope | ✅ shipped | account/device on every event |
 | TOML config + env overrides | ✅ shipped | defaults → `~/.config/urchin/config.toml` → env |
-| HTTP intake | ✅ shipped | `POST /ingest`, `GET /health` — `127.0.0.1` only |
-| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 9 tools |
-| Daemon mode | ✅ shipped | `urchin serve` — collector loop + intake server |
+| HTTP intake | ✅ shipped | `POST /ingest`, `GET /health`; loopback-only |
+| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 10 tools |
+| Daemon mode | ✅ shipped | `urchin serve`; collector loop + intake server |
 | Shell collector | ✅ shipped | `~/.bash_history`, byte-offset checkpoint |
 | Git collector | ✅ shipped | per-repo SHA checkpoint, silent first run |
 | Claude collector | ✅ shipped | `~/.claude/projects/` JSONL transcripts |
@@ -102,17 +106,17 @@ Collectors are passive readers. They never write back to source tools. The journ
 | Collector trait + registry | ✅ shipped | object-safe `Collector` trait, `CollectorRegistry::with_defaults()`, `is_available()` self-discovery |
 | Codex collector | ✅ shipped | `~/.codex/state_5.sqlite`, threads table, `first_user_message` intent capture |
 | OpenCode collector | ✅ shipped | `~/.local/share/opencode/opencode.db`, message JOIN session, user-role filter |
-| Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file — Ollama, llama.cpp, any harness |
+| Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file; Ollama, llama.cpp, any harness |
 | `urchin-agent` Reasoner trait | ✅ shipped | `EchoReasoner` (deterministic), `HttpReasoner` (Ollama-compat via `URCHIN_REASONER_URL`) |
-| Ephemeral mode | ✅ shipped | `EphemeralMode` — file-backed flag + in-process `AtomicBool`, cross-process aware |
+| Ephemeral mode | ✅ shipped | `EphemeralMode`; file-backed flag + in-process `AtomicBool`, cross-process aware |
 | Intake auth | ✅ shipped | Optional Bearer token (`URCHIN_INTAKE_TOKEN`), loopback-only |
-| Lockless intake pipe | ✅ shipped | Tokio MPSC unbounded channel, background writer thread, `flush()` on all write paths — 138 tests |
+| Lockless intake pipe | ✅ shipped | Tokio MPSC unbounded channel, background writer thread, `flush()` on all write paths; 138 tests |
 | SQLite projection index | ✅ shipped | WAL mode, batch INSERT per flush, O(log n) queries, `urchin rebuild-index` command |
 | OS-level collectors | 🔲 planned | Active window, inotify file watcher, AI traffic interceptor |
-| WebView intercept | 🔲 planned | Phase 3 — Tauri captures ChatGPT/Gemini/Claude web natively |
-| Vector embeddings | 🔲 planned | Phase 4 — upgrades `urchin_semantic_search` from token-cosine to real vectors |
-| `.urchinignore` runtime | 🔲 planned | Phase 5 — spec exists in `SOVEREIGNTY.md`, not yet wired |
-| Multi-device sync | 🔲 planned | Phase 6 — deterministic chunk sync |
+| WebView intercept | 🔲 planned | Phase 3: Tauri captures ChatGPT/Gemini/Claude web natively |
+| Vector embeddings | 🔲 planned | Phase 4: upgrades `urchin_semantic_search` from token-cosine to real vectors |
+| `.urchinignore` runtime | 🔲 planned | Phase 5: spec exists in `SOVEREIGNTY.md`, not yet wired |
+| Multi-device sync | 🔲 planned | Phase 6: deterministic chunk sync |
 
 **138 tests** across `urchin-core` (26), `urchin-intake` (8), `urchin-mcp` (20), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (29).
 
@@ -173,7 +177,7 @@ crates/
   urchin-core        zero I/O: Event, Journal, Identity, Config
   urchin-intake      axum: POST /ingest, GET /health (127.0.0.1:18799)
   urchin-mcp         MCP over stdio: 10 tools, JSON-RPC 2.0
-  urchin-collectors  shell, git, claude, copilot, gemini, codex, opencode, local-model — all live
+  urchin-collectors  shell, git, claude, copilot, gemini, codex, opencode, local-model (all live)
   urchin-vault       vault projection: writes marker blocks into ~/brain
   urchin-agent       ReAct skeleton: load context, synthesise, write back as Agent event
   urchin-sdk         shared types for external integrations
@@ -202,18 +206,18 @@ Append-only JSONL. Events are never mutated. Unknown fields are ignored on read.
 
 | Tool | Args | Purpose |
 |---|---|---|
-| `urchin_status` | — | event count, last event, paths, identity |
+| `urchin_status` | (none) | event count, last event, paths, identity |
 | `urchin_ingest` | `content`, `workspace` | write a structured event |
 | `urchin_recent_activity` | `hours`, `source`, `limit` | recent events, newest first |
 | `urchin_project_context` | `project` | match by content, tags, or workspace path |
 | `urchin_search` | `query` | case-insensitive substring search |
-| `urchin_workspace_context` | `path` | events scoped to a specific workspace CWD — call at session start |
+| `urchin_workspace_context` | `path` | events scoped to a specific workspace CWD; call at session start |
 | `urchin_remember` | `content`, `tags?`, `workspace?` | quick-capture without required workspace |
-| `urchin_ephemeral` | `action: start\|end\|status` | burn mode — suppresses all writes until `end` |
+| `urchin_ephemeral` | `action: start\|end\|status` | burn mode; suppresses all writes until `end` |
 | `urchin_agent_reflect` | `goal`, `hours?`, `limit?` | ReAct reflection: load context, synthesise, write back to journal |
 | `urchin_semantic_search` | `query`, `limit?` | Token-cosine similarity search (vector embeddings in Phase 4) |
 
-Errors return `isError: true`. Queries return one line per event: `[timestamp] source — content`.
+Errors return `isError: true`. Queries return one line per event: `[timestamp] source | content`.
 
 ---
 
@@ -275,7 +279,7 @@ After adding: restart the IDE. Run `urchin_status` in the assistant to confirm t
 ## Configuration
 
 ```toml
-# ~/.config/urchin/config.toml — all optional
+# ~/.config/urchin/config.toml  (all fields optional)
 vault_root   = "/home/you/brain"
 journal_path = "/home/you/.local/share/urchin/journal/events.jsonl"
 intake_port  = 18799
@@ -298,7 +302,7 @@ cloud_token  = "<bearer-token>"
 ## Rules
 
 > [!IMPORTANT]
-> 1. `urchin-core` has zero I/O — pure types only.
+> 1. `urchin-core` has zero I/O. Pure types only.
 > 2. The journal is append-only. Events are never mutated.
 > 3. Vault writes happen only inside `<!-- URCHIN:* -->` marker blocks. Human content is never touched.
 > 4. Collectors read. They never write back to source tools.
@@ -308,5 +312,5 @@ cloud_token  = "<bearer-token>"
 ---
 
 <div align="center">
-<sub>Local-first. Additive. The substrate is not a product — it is infrastructure.</sub>
+<sub>Local-first. Additive. The substrate is not a product. It is infrastructure.</sub>
 </div>

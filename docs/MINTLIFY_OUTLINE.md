@@ -75,8 +75,8 @@ Architecture
 Sovereignty
   Ephemeral Mode
   Burn Button (MCP + CLI)
-  .urchinignore (planned — Phase 5)
-  Export (planned — Phase 5)
+  .urchinignore (planned, Phase 5)
+  Export (planned, Phase 5)
 
 Roadmap
   Phase Status Overview
@@ -91,23 +91,23 @@ Roadmap
 | Quick Start | 🔲 needs writing | `README.md` quick start section |
 | Installation | 🔲 needs writing | cargo build + binary download from releases |
 | Configuration | 🔲 needs writing | `docs/API_REFERENCE.md`, config table in README |
-| Collectors — Overview | 🔲 needs writing | `crates/urchin-collectors/src/lib.rs` + README |
-| Collectors — Shell | 🔲 needs writing | `crates/urchin-collectors/src/shell.rs` |
-| Collectors — Git | 🔲 needs writing | `crates/urchin-collectors/src/git.rs` |
-| Collectors — Claude | 🔲 needs writing | `crates/urchin-collectors/src/claude.rs` |
-| Collectors — Copilot | 🔲 needs writing | `crates/urchin-collectors/src/copilot.rs` |
-| Collectors — Gemini | 🔲 needs writing | `crates/urchin-collectors/src/gemini.rs` |
-| Collectors — Codex | 🔲 needs writing | `crates/urchin-collectors/src/codex.rs` |
-| Collectors — OpenCode | 🔲 needs writing | `crates/urchin-collectors/src/opencode.rs` |
-| Collectors — Local Model | 🔲 needs writing | `crates/urchin-collectors/src/local_model.rs` + README drop file section |
+| Collectors: Overview | 🔲 needs writing | `crates/urchin-collectors/src/lib.rs` + README |
+| Collectors: Shell | 🔲 needs writing | `crates/urchin-collectors/src/shell.rs` |
+| Collectors: Git | 🔲 needs writing | `crates/urchin-collectors/src/git.rs` |
+| Collectors: Claude | 🔲 needs writing | `crates/urchin-collectors/src/claude.rs` |
+| Collectors: Copilot | 🔲 needs writing | `crates/urchin-collectors/src/copilot.rs` |
+| Collectors: Gemini | 🔲 needs writing | `crates/urchin-collectors/src/gemini.rs` |
+| Collectors: Codex | 🔲 needs writing | `crates/urchin-collectors/src/codex.rs` |
+| Collectors: OpenCode | 🔲 needs writing | `crates/urchin-collectors/src/opencode.rs` |
+| Collectors: Local Model | 🔲 needs writing | `crates/urchin-collectors/src/local_model.rs` + README drop file section |
 | MCP Overview + IDE Setup | 🔲 needs writing | README IDE Setup section |
-| MCP — all 10 tools | 🔲 needs writing | `crates/urchin-mcp/src/tools.rs` schemas |
+| MCP: all 10 tools | 🔲 needs writing | `crates/urchin-mcp/src/tools.rs` schemas |
 | API Reference | 🔲 needs writing | `docs/API_REFERENCE.md` (port directly) |
-| CLI Reference | 🔲 needs writing | `crates/urchin-cli/src/main.rs` clap defs — includes `rebuild-index` |
-| Architecture — SQLite Index | 🔲 needs writing | `crates/urchin-core/src/index.rs` — WAL, schema, rebuild |
-| Architecture — other | 🔲 needs writing | `docs/ARCHITECTURE.md` (port directly) |
+| CLI Reference | 🔲 needs writing | `crates/urchin-cli/src/main.rs` clap defs (includes `rebuild-index` |
+| Architecture: SQLite Index | 🔲 needs writing | `crates/urchin-core/src/index.rs` (WAL, schema, rebuild) |
+| Architecture: other | 🔲 needs writing | `docs/ARCHITECTURE.md` (port directly) |
 | Event Schema | 🔲 needs writing | `crates/urchin-core/src/event.rs` |
-| Sovereignty — Ephemeral | 🔲 needs writing | `crates/urchin-core/src/ephemeral.rs` + `SOVEREIGNTY.md` |
+| Sovereignty: Ephemeral | 🔲 needs writing | `crates/urchin-core/src/ephemeral.rs` + `SOVEREIGNTY.md` |
 | Roadmap | 🔲 needs writing | `ROADMAP.md` (port with phase status markers) |
 
 ---
