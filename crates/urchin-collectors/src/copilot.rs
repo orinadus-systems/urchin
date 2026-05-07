@@ -1,14 +1,14 @@
-/// Copilot CLI collector — reads `~/.copilot/command-history-state.json`.
-///
-/// The history file contains `{"commandHistory": ["prompt1", "prompt2", ...]}` newest-first,
-/// capped at a rolling window (currently 50). Because the whole array is rewritten on each
-/// session there is no stable byte-offset anchor. Instead we track a bounded seen-set: every
-/// prompt we have already emitted is stored (one per line) in a checkpoint file. On each run
-/// we emit prompts that are not in the seen-set, then persist the merged set.
-///
-/// The seen-set is capped at MAX_SEEN entries to keep the checkpoint file bounded. Old entries
-/// fall off the front when the cap is hit; that can cause rare re-emission of very old prompts
-/// but in practice the rolling window means they won't appear in the source file anyway.
+//! Copilot CLI collector — reads `~/.copilot/command-history-state.json`.
+//!
+//! The history file contains `{"commandHistory": ["prompt1", "prompt2", ...]}` newest-first,
+//! capped at a rolling window (currently 50). Because the whole array is rewritten on each
+//! session there is no stable byte-offset anchor. Instead we track a bounded seen-set: every
+//! prompt we have already emitted is stored (one per line) in a checkpoint file. On each run
+//! we emit prompts that are not in the seen-set, then persist the merged set.
+//!
+//! The seen-set is capped at MAX_SEEN entries to keep the checkpoint file bounded. Old entries
+//! fall off the front when the cap is hit; that can cause rare re-emission of very old prompts
+//! but in practice the rolling window means they won't appear in the source file anyway.
 
 use std::collections::HashSet;
 use std::fs;
@@ -88,6 +88,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &CopilotOpts) -> Re
         save_seen(&opts.checkpoint_path, seen, new_seen)?;
     }
 
+    journal.flush()?;
     Ok(count)
 }
 

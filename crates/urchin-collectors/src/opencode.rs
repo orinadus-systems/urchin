@@ -1,15 +1,15 @@
-/// OpenCode collector — reads `~/.local/share/opencode/opencode.db` and emits Events.
-///
-/// OpenCode stores AI coding sessions in a SQLite DB. We join `message` with
-/// `session` to get the workspace directory, filter for user-role messages
-/// only, and extract text content from the `data` JSON blob.
-///
-/// The `data` JSON may contain content as:
-///   - `data.parts[].text` (AI SDK streaming format)
-///   - `data.content` as a plain string (compact format)
-///   - `data.content[].text` (array of blocks)
-///
-/// Checkpoint: JSON `{ "last_ts_ms": <i64> }` in the state dir.
+//! OpenCode collector — reads `~/.local/share/opencode/opencode.db` and emits Events.
+//!
+//! OpenCode stores AI coding sessions in a SQLite DB. We join `message` with
+//! `session` to get the workspace directory, filter for user-role messages
+//! only, and extract text content from the `data` JSON blob.
+//!
+//! The `data` JSON may contain content as:
+//!   - `data.parts[].text` (AI SDK streaming format)
+//!   - `data.content` as a plain string (compact format)
+//!   - `data.content[].text` (array of blocks)
+//!
+//! Checkpoint: JSON `{ "last_ts_ms": <i64> }` in the state dir.
 
 use std::path::PathBuf;
 
@@ -200,6 +200,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &OpenCodeOpts) -> R
         save_checkpoint(&opts.checkpoint_path, &ckpt)?;
     }
 
+    journal.flush()?;
     Ok(count)
 }
 

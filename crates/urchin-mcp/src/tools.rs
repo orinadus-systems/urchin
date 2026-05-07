@@ -1,5 +1,5 @@
-/// Tool schemas and execution for the MCP server.
-/// Each tool takes a Value argument map, reads/writes the journal, returns a text block.
+//! Tool schemas and execution for the MCP server.
+//! Each tool takes a Value argument map, reads/writes the journal, returns a text block.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -188,7 +188,7 @@ fn status(ctx: &ToolContext) -> Result<String> {
     let stats = ctx.journal.stats()?;
     let mut out = String::new();
     out.push_str("urchin — local memory sync substrate\n\n");
-    out.push_str(&format!("running:  true\n"));
+    out.push_str("running:  true\n");
     out.push_str(&format!("events:   {}\n", stats.event_count));
     out.push_str(&format!("size:     {} KB\n", stats.file_size_bytes / 1024));
     if let Some(last) = stats.last_event {
@@ -234,6 +234,7 @@ fn ingest(args: &Value, ctx: &ToolContext) -> Result<String> {
     });
 
     ctx.journal.append(&event)?;
+    ctx.journal.flush()?;
 
     let label = title.unwrap_or_else(|| truncate_label(&content, 60));
     Ok(format!("Recorded [{}]: {}", source, label))
@@ -298,10 +299,11 @@ fn remember(args: &Value, ctx: &ToolContext) -> Result<String> {
     event.actor = Some(Actor {
         account:   Some(ctx.identity.account.clone()),
         device:    Some(ctx.identity.device.clone()),
-        workspace: workspace,
+        workspace,
     });
 
     ctx.journal.append(&event)?;
+    ctx.journal.flush()?;
     Ok(format!("Remembered: {}", truncate_label(&content, 80)))
 }
 

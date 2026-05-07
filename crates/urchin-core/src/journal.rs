@@ -1,17 +1,19 @@
-/// Append-only journal. Events are written once, never mutated.
-/// The journal file at ~/.local/share/urchin/journal/events.jsonl is the source of truth.
+//! Append-only journal. Events are written once, never mutated.
+//! The journal file at ~/.local/share/urchin/journal/events.jsonl is the source of truth.
 
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use anyhow::Result;
 use crate::event::Event;
 
+enum JournalOp {
+    Append(String),
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
 pub struct Journal {
     path: PathBuf,
-    /// Serialises concurrent calls to append() within the same process.
-    /// Each open+write pair is atomic on Linux for small payloads, but the
-    /// lock prevents two threads from interleaving their JSON lines.
-    write_lock: std::sync::Mutex<()>,
+    tx: tokio::sync::mpsc::UnboundedSender<JournalOp>,
 }
 
 pub struct JournalStats {
@@ -20,9 +22,45 @@ pub struct JournalStats {
     pub last_event: Option<Event>,
 }
 
+fn open_writer(path: &PathBuf) -> BufWriter<std::fs::File> {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .expect("journal: failed to open file for writing");
+    BufWriter::new(f)
+}
+
 impl Journal {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, write_lock: std::sync::Mutex::new(()) }
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<JournalOp>();
+        let writer_path = path.clone();
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("journal: failed to build writer runtime")
+                .block_on(async move {
+                    let mut file: Option<BufWriter<std::fs::File>> = None;
+                    while let Some(op) = rx.recv().await {
+                        match op {
+                            JournalOp::Append(line) => {
+                                let f = file.get_or_insert_with(|| open_writer(&writer_path));
+                                let _ = writeln!(f, "{}", line);
+                            }
+                            JournalOp::Flush(ack) => {
+                                if let Some(f) = &mut file {
+                                    let _ = f.flush();
+                                }
+                                let _ = ack.send(());
+                            }
+                        }
+                    }
+                });
+        });
+        Self { path, tx }
     }
 
     pub fn default_path() -> PathBuf {
@@ -41,19 +79,24 @@ impl Journal {
         &self.path
     }
 
+    /// Queue an event for writing. Returns immediately; the writer task flushes asynchronously.
+    /// Call flush() to guarantee the event is on disk before reading back.
     pub fn append(&self, event: &Event) -> Result<()> {
-        let _guard = self.write_lock.lock()
-            .map_err(|_| anyhow::anyhow!("journal write_lock poisoned"))?;
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
         let line = serde_json::to_string(event)?;
-        writeln!(file, "{}", line)?;
-        Ok(())
+        self.tx
+            .send(JournalOp::Append(line))
+            .map_err(|_| anyhow::anyhow!("journal writer has stopped"))
+    }
+
+    /// Block until all queued events are flushed to the OS buffer.
+    pub fn flush(&self) -> Result<()> {
+        let (ack_tx, ack_rx) = std::sync::mpsc::sync_channel(0);
+        self.tx
+            .send(JournalOp::Flush(ack_tx))
+            .map_err(|_| anyhow::anyhow!("journal writer has stopped"))?;
+        ack_rx
+            .recv()
+            .map_err(|_| anyhow::anyhow!("journal writer exited before flush ack"))
     }
 
     pub fn read_all(&self) -> Result<Vec<Event>> {
@@ -64,7 +107,7 @@ impl Journal {
         let reader = BufReader::new(file);
         let events = reader
             .lines()
-            .filter_map(|l| l.ok())
+            .map_while(Result::ok)
             .filter(|l| !l.trim().is_empty())
             .filter_map(|l| serde_json::from_str(&l).ok())
             .collect();
@@ -101,7 +144,6 @@ impl Journal {
                 }
             }
             if read_from == 0 {
-                // start remains 0 (read from beginning of file)
                 break;
             }
             pos = read_from;
@@ -124,7 +166,6 @@ impl Journal {
 
     /// Read events starting from a byte offset in the file.
     /// Returns (events, new_offset) where new_offset is the file position after reading.
-    /// Caller should persist new_offset so the next call skips already-read events.
     pub fn read_from_byte_offset(&self, offset: u64) -> Result<(Vec<Event>, u64)> {
         if !self.path.exists() {
             return Ok((vec![], 0));
@@ -155,7 +196,6 @@ impl Journal {
             return Ok(JournalStats { event_count: 0, file_size_bytes: 0, last_event: None });
         }
         let mut file = std::fs::File::open(&self.path)?;
-        // Count newlines via raw byte scan — no per-line alloc, no JSON parse.
         let mut event_count: usize = 0;
         let mut chunk = vec![0u8; 65_536];
         loop {
@@ -165,7 +205,6 @@ impl Journal {
                 if b == b'\n' { event_count += 1; }
             }
         }
-        // Parse only the last ~4KB to extract the most recent event.
         let tail_start = file_size_bytes.saturating_sub(4096);
         file.seek(SeekFrom::Start(tail_start))?;
         let mut tail = String::new();
@@ -195,6 +234,7 @@ mod tests {
 
         journal.append(&e1).unwrap();
         journal.append(&e2).unwrap();
+        journal.flush().unwrap();
 
         let events = journal.read_all().unwrap();
         assert_eq!(events.len(), 2);
@@ -205,7 +245,6 @@ mod tests {
     #[test]
     fn stats_on_empty_journal() {
         let tmp = NamedTempFile::new().unwrap();
-        // Write empty file
         std::fs::write(tmp.path(), "").unwrap();
         let journal = Journal::new(tmp.path().to_path_buf());
         let stats = journal.stats().unwrap();
@@ -222,6 +261,7 @@ mod tests {
             let e = Event::new("cli", EventKind::Conversation, format!("event {}", i));
             journal.append(&e).unwrap();
         }
+        journal.flush().unwrap();
 
         let stats = journal.stats().unwrap();
         assert_eq!(stats.event_count, 5);
@@ -243,6 +283,7 @@ mod tests {
         for i in 0..10 {
             journal.append(&Event::new("cli", EventKind::Conversation, format!("event {}", i))).unwrap();
         }
+        journal.flush().unwrap();
         let tail = journal.read_tail(3).unwrap();
         assert_eq!(tail.len(), 3);
         assert_eq!(tail[0].content, "event 7");
@@ -257,6 +298,7 @@ mod tests {
         for i in 0..3 {
             journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
         }
+        journal.flush().unwrap();
         let tail = journal.read_tail(10).unwrap();
         assert_eq!(tail.len(), 3);
     }
@@ -268,6 +310,7 @@ mod tests {
         for i in 0..10 {
             journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
         }
+        journal.flush().unwrap();
         let window = journal.read_window(0, 3).unwrap();
         assert_eq!(window.len(), 3);
         assert_eq!(window[0].content, "e9");
@@ -282,6 +325,7 @@ mod tests {
         for i in 0..10 {
             journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
         }
+        journal.flush().unwrap();
         let window = journal.read_window(3, 3).unwrap();
         assert_eq!(window.len(), 3);
         assert_eq!(window[0].content, "e6");
@@ -296,7 +340,32 @@ mod tests {
         for i in 0..3 {
             journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
         }
+        journal.flush().unwrap();
         let window = journal.read_window(10, 5).unwrap();
         assert!(window.is_empty());
+    }
+
+    #[test]
+    fn concurrent_writers_all_land() {
+        use std::sync::Arc;
+        let tmp = NamedTempFile::new().unwrap();
+        let journal = Arc::new(Journal::new(tmp.path().to_path_buf()));
+        let handles: Vec<_> = (0..10).map(|i| {
+            let j = journal.clone();
+            std::thread::spawn(move || {
+                for k in 0..1_000 {
+                    j.append(&Event::new(
+                        "test",
+                        EventKind::Command,
+                        format!("thread {} event {}", i, k),
+                    ))
+                    .unwrap();
+                }
+            })
+        }).collect();
+        for h in handles { h.join().unwrap(); }
+        journal.flush().unwrap();
+        let events = journal.read_all().unwrap();
+        assert_eq!(events.len(), 10_000);
     }
 }

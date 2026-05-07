@@ -1,5 +1,5 @@
-/// Context loading: select events from the journal that fit within the
-/// agent's context window (hours + max count).
+//! Context loading: select events from the journal that fit within the
+//! agent's context window (hours + max count).
 
 use chrono::{Duration, Utc};
 use urchin_core::event::Event;

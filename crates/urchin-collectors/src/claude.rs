@@ -1,9 +1,9 @@
-/// Claude CLI collector — reads `~/.claude/history.jsonl` and emits Events.
-///
-/// history.jsonl records every user input to Claude Code: plain prompts, pasted
-/// blocks, and slash commands. We skip slash commands and preserve the original
-/// timestamp from each record. Checkpoint is a byte offset so we never re-emit
-/// entries across runs, even if a record has no timestamp.
+//! Claude CLI collector — reads `~/.claude/history.jsonl` and emits Events.
+//!
+//! history.jsonl records every user input to Claude Code: plain prompts, pasted
+//! blocks, and slash commands. We skip slash commands and preserve the original
+//! timestamp from each record. Checkpoint is a byte offset so we never re-emit
+//! entries across runs, even if a record has no timestamp.
 
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -122,6 +122,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &ClaudeOpts) -> Res
     }
 
     write_checkpoint(&opts.checkpoint_path, file_size)?;
+    journal.flush()?;
     Ok(count)
 }
 

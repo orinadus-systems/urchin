@@ -1,14 +1,14 @@
-/// Semantic search over the journal.
-///
-/// Two backends, selected at construction time:
-///
-/// 1. `TokenCosine` (default, always available) — tokenises query and candidate,
-///    computes overlap-based cosine similarity. O(n) per event, zero network.
-///
-/// 2. `OllamaEmbed` — calls the Ollama `/api/embed` endpoint for real vector
-///    embeddings, then ranks by cosine similarity. Activated when
-///    `URCHIN_EMBEDDER_URL` is set in the environment; falls back to
-///    `TokenCosine` on any network/parse failure.
+//! Semantic search over the journal.
+//!
+//! Two backends, selected at construction time:
+//!
+//! 1. `TokenCosine` (default, always available) — tokenises query and candidate,
+//!    computes overlap-based cosine similarity. O(n) per event, zero network.
+//!
+//! 2. `OllamaEmbed` — calls the Ollama `/api/embed` endpoint for real vector
+//!    embeddings, then ranks by cosine similarity. Activated when
+//!    `URCHIN_EMBEDDER_URL` is set in the environment; falls back to
+//!    `TokenCosine` on any network/parse failure.
 
 use std::collections::HashSet;
 

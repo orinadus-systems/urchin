@@ -1,10 +1,10 @@
-/// Codex CLI collector — reads `~/.codex/state_5.sqlite` and emits Events.
-///
-/// Codex writes one row per coding session into the `threads` table.
-/// We capture the `first_user_message` (or `title` as fallback) as the user's
-/// intent, using a timestamp watermark so we never re-emit a session.
-///
-/// Checkpoint: JSON `{ "last_ts_ms": <unix_ms> }` stored in the state dir.
+//! Codex CLI collector — reads `~/.codex/state_5.sqlite` and emits Events.
+//!
+//! Codex writes one row per coding session into the `threads` table.
+//! We capture the `first_user_message` (or `title` as fallback) as the user's
+//! intent, using a timestamp watermark so we never re-emit a session.
+//!
+//! Checkpoint: JSON `{ "last_ts_ms": <unix_ms> }` stored in the state dir.
 
 use std::path::PathBuf;
 
@@ -154,6 +154,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &CodexOpts) -> Resu
         save_checkpoint(&opts.checkpoint_path, &ckpt)?;
     }
 
+    journal.flush()?;
     Ok(count)
 }
 

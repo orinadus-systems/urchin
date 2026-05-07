@@ -1,10 +1,10 @@
-/// Cross-process ephemeral mode flag, backed by a lock file on disk.
-///
-/// When active, journal writes are suppressed across all processes (MCP, intake).
-/// MCP calls `activate()`/`deactivate()` via the urchin_ephemeral tool.
-/// urchin-intake checks `is_active()` before writing each ingested event.
+//! Cross-process ephemeral mode flag, backed by a lock file on disk.
+//!
+//! When active, journal writes are suppressed across all processes (MCP, intake).
+//! MCP calls `activate()`/`deactivate()` via the urchin_ephemeral tool.
+//! urchin-intake checks `is_active()` before writing each ingested event.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct EphemeralMode {
@@ -12,7 +12,7 @@ pub struct EphemeralMode {
 }
 
 impl EphemeralMode {
-    pub fn new(data_dir: &PathBuf) -> Self {
+    pub fn new(data_dir: &Path) -> Self {
         Self { flag_path: data_dir.join("ephemeral.lock") }
     }
 
@@ -54,7 +54,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn mode(dir: &TempDir) -> EphemeralMode {
-        EphemeralMode::new(&dir.path().to_path_buf())
+        EphemeralMode::new(dir.path())
     }
 
     #[test]

@@ -1,8 +1,8 @@
-/// Reasoner trait — pluggable LLM backend for the agent reflection loop.
-///
-/// Implementors receive the goal and formatted context, and return a synthesis.
-/// The default in production is `HttpReasoner` when `URCHIN_REASONER_URL` is set;
-/// otherwise `EchoReasoner` is used (deterministic, no network, always safe for tests).
+//! Reasoner trait — pluggable LLM backend for the agent reflection loop.
+//!
+//! Implementors receive the goal and formatted context, and return a synthesis.
+//! The default in production is `HttpReasoner` when `URCHIN_REASONER_URL` is set;
+//! otherwise `EchoReasoner` is used (deterministic, no network, always safe for tests).
 
 use anyhow::Result;
 

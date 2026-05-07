@@ -1,5 +1,5 @@
-/// JSON-RPC 2.0 over stdio for MCP. One request per line on stdin,
-/// one response per line on stdout. All logs go to stderr — stdout is protocol-only.
+//! JSON-RPC 2.0 over stdio for MCP. One request per line on stdin,
+//! one response per line on stdout. All logs go to stderr — stdout is protocol-only.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;

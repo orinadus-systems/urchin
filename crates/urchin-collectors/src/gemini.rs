@@ -1,12 +1,12 @@
-/// Gemini CLI collector — reads session JSONL files from `~/.gemini/tmp/{user}/chats/`.
-///
-/// Each session is a `session-YYYY-MM-DDTHH-MM-*.jsonl` file. Lines with
-/// `"type": "user"` contain the user's messages; content is an array of
-/// `{"text": "..."}` objects. We extract text, strip empty/duplicate parts.
-///
-/// Checkpoint strategy: a JSON file tracking which session files are fully
-/// processed and the byte offset into the most-recently-seen (possibly still
-/// active) session file.
+//! Gemini CLI collector — reads session JSONL files from `~/.gemini/tmp/{user}/chats/`.
+//!
+//! Each session is a `session-YYYY-MM-DDTHH-MM-*.jsonl` file. Lines with
+//! `"type": "user"` contain the user's messages; content is an array of
+//! `{"text": "..."}` objects. We extract text, strip empty/duplicate parts.
+//!
+//! Checkpoint strategy: a JSON file tracking which session files are fully
+//! processed and the byte offset into the most-recently-seen (possibly still
+//! active) session file.
 
 use std::fs;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
@@ -185,10 +185,11 @@ where
     }
 
     on_end(pos);
+    journal.flush()?;
     Ok(count)
 }
 
-fn basename(p: &PathBuf) -> String {
+fn basename(p: &std::path::Path) -> String {
     p.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default()

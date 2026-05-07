@@ -1,26 +1,26 @@
-/// Local model collector — reads `~/.local/share/urchin/local-model.jsonl`.
-///
-/// This is an **opt-in drop file**. When an external tool (Ollama wrapper,
-/// LM Studio, or any local-inference harness) wants to push events into the
-/// Urchin journal, it appends newline-delimited JSON records to this file.
-/// Urchin only reads; it never writes to this file.
-///
-/// Each line must be valid JSON with at minimum a `prompt` field:
-/// ```json
-/// {"prompt":"fix the build","model":"ollama:mistral","ts":"2026-05-01T10:00:00Z","workspace":"/opt/project"}
-/// ```
-///
-/// Fields:
-/// - `prompt`    (required)  — the user intent sent to the local model
-/// - `model`     (optional)  — e.g. `"ollama:mistral"`, becomes tag `model:ollama:mistral`
-/// - `ts`        (optional)  — RFC3339 timestamp; defaults to now if absent or unparseable
-/// - `workspace` (optional)  — absolute path of the project directory
-///
-/// Checkpoint: byte-offset (same mechanism as the shell collector), stored as
-/// a single `u64` text file at `XDG_STATE_HOME/urchin/local_model.offset`.
-///
-/// `is_available()` returns `false` when the drop file does not yet exist,
-/// so no noise is emitted before the user sets up a local model harness.
+//! Local model collector — reads `~/.local/share/urchin/local-model.jsonl`.
+//!
+//! This is an **opt-in drop file**. When an external tool (Ollama wrapper,
+//! LM Studio, or any local-inference harness) wants to push events into the
+//! Urchin journal, it appends newline-delimited JSON records to this file.
+//! Urchin only reads; it never writes to this file.
+//!
+//! Each line must be valid JSON with at minimum a `prompt` field:
+//! ```json
+//! {"prompt":"fix the build","model":"ollama:mistral","ts":"2026-05-01T10:00:00Z","workspace":"/opt/project"}
+//! ```
+//!
+//! Fields:
+//! - `prompt`    (required)  — the user intent sent to the local model
+//! - `model`     (optional)  — e.g. `"ollama:mistral"`, becomes tag `model:ollama:mistral`
+//! - `ts`        (optional)  — RFC3339 timestamp; defaults to now if absent or unparseable
+//! - `workspace` (optional)  — absolute path of the project directory
+//!
+//! Checkpoint: byte-offset (same mechanism as the shell collector), stored as
+//! a single `u64` text file at `XDG_STATE_HOME/urchin/local_model.offset`.
+//!
+//! `is_available()` returns `false` when the drop file does not yet exist,
+//! so no noise is emitted before the user sets up a local model harness.
 
 use std::{
     fs::File,
@@ -162,6 +162,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &LocalModelOpts) ->
         write_checkpoint(&opts.checkpoint_path, pos)?;
     }
 
+    journal.flush()?;
     Ok(count)
 }
 

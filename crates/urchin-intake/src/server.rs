@@ -131,10 +131,13 @@ async fn ingest(
 
     // ── Write ─────────────────────────────────────────────────────────────────
     let id = event.id;
-    match state.journal.append(&event) {
-        Ok(()) => (StatusCode::OK, Json(json!({"id": id, "status": "ok"}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))),
+    if let Err(e) = state.journal.append(&event) {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})));
     }
+    if let Err(e) = state.journal.flush() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})));
+    }
+    (StatusCode::OK, Json(json!({"id": id, "status": "ok"})))
 }
 
 #[cfg(test)]
@@ -345,7 +348,7 @@ mod tests {
     async fn ingest_drops_silently_in_ephemeral_mode() {
         let tmp_j = NamedTempFile::new().unwrap();
         let tmp_e = TempDir::new().unwrap();
-        let mut state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
         state.ephemeral.activate().unwrap();
         let app = router(state);
 

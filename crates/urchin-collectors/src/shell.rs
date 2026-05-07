@@ -1,8 +1,8 @@
-/// Shell collector: tail `~/.bash_history` and append new commands as events.
-///
-/// The history file is appended to by every shell session. We track the byte offset
-/// of the last line we read so we don't re-emit lines we've already seen. If the file
-/// shrinks (HISTSIZE truncation, log rotation) we reset to the start.
+//! Shell collector: tail `~/.bash_history` and append new commands as events.
+//!
+//! The history file is appended to by every shell session. We track the byte offset
+//! of the last line we read so we don't re-emit lines we've already seen. If the file
+//! shrinks (HISTSIZE truncation, log rotation) we reset to the start.
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
@@ -68,6 +68,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &ShellOpts) -> Resu
     }
 
     write_checkpoint(&opts.checkpoint_path, file_size)?;
+    journal.flush()?;
     Ok(count)
 }
 

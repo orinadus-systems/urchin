@@ -1,9 +1,9 @@
-/// Git collector: ingest commits from configured repos as events.
-///
-/// We shell out to `git log` rather than depend on libgit2 — the binary is everywhere
-/// and the output is stable. Each repo gets its own checkpoint storing the last-seen
-/// HEAD SHA. First run is silent: we record HEAD without ingesting, so we don't
-/// dump thousands of historical commits the first time a repo is wired up.
+//! Git collector: ingest commits from configured repos as events.
+//!
+//! We shell out to `git log` rather than depend on libgit2 — the binary is everywhere
+//! and the output is stable. Each repo gets its own checkpoint storing the last-seen
+//! HEAD SHA. First run is silent: we record HEAD without ingesting, so we don't
+//! dump thousands of historical commits the first time a repo is wired up.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -118,6 +118,7 @@ pub fn collect_repo(journal: &Journal, identity: &Identity, opts: &GitOpts) -> R
     }
 
     write_checkpoint(cp_path, &head)?;
+    journal.flush()?;
     Ok(count)
 }
 

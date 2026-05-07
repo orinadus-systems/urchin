@@ -1,5 +1,5 @@
-/// Shared helpers for collectors that need to remember where they left off.
-/// Checkpoint files live under `XDG_STATE_HOME/urchin/` (or `~/.local/state/urchin/`).
+//! Shared helpers for collectors that need to remember where they left off.
+//! Checkpoint files live under `XDG_STATE_HOME/urchin/` (or `~/.local/state/urchin/`).
 
 use std::path::PathBuf;
 

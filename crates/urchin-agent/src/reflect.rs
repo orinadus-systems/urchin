@@ -1,8 +1,8 @@
-/// Reflection synthesis: calls the Reasoner backend over context.
-///
-/// Phase 2 default: `EchoReasoner` (deterministic, no network).
-/// Phase 4: pass `HttpReasoner` to get real LLM synthesis from Ollama/OpenAI.
-/// If the reasoner returns an error, falls back to a deterministic summary.
+//! Reflection synthesis: calls the Reasoner backend over context.
+//!
+//! Phase 2 default: `EchoReasoner` (deterministic, no network).
+//! Phase 4: pass `HttpReasoner` to get real LLM synthesis from Ollama/OpenAI.
+//! If the reasoner returns an error, falls back to a deterministic summary.
 
 use chrono::Utc;
 use urchin_core::event::{Event, EventKind};

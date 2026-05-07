@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use chrono::{Duration, Utc};
 use crate::event::Event;
 
@@ -8,7 +9,7 @@ pub fn recent<'a>(events: &'a [Event], hours: f64, source: Option<&str>, limit: 
         .filter(|e| e.timestamp >= cutoff)
         .filter(|e| source.map(|s| e.source == s).unwrap_or(true))
         .collect();
-    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    filtered.sort_by_key(|e| Reverse(e.timestamp));
     filtered.truncate(limit);
     filtered
 }
@@ -21,7 +22,7 @@ pub fn search_content<'a>(events: &'a [Event], query: &str, hours: f64, limit: u
         .filter(|e| e.timestamp >= cutoff)
         .filter(|e| e.content.to_lowercase().contains(&q))
         .collect();
-    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    filtered.sort_by_key(|e| Reverse(e.timestamp));
     filtered.truncate(limit);
     filtered
 }
@@ -38,7 +39,7 @@ pub fn project_context<'a>(events: &'a [Event], project: &str, hours: f64, limit
                 || e.workspace.as_deref().map(|w| w.to_lowercase().contains(&p)).unwrap_or(false)
         })
         .collect();
-    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    filtered.sort_by_key(|e| Reverse(e.timestamp));
     filtered.truncate(limit);
     filtered
 }
@@ -57,7 +58,7 @@ pub fn workspace_context<'a>(events: &'a [Event], path: &str, hours: f64, limit:
                 .unwrap_or(false)
         })
         .collect();
-    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    filtered.sort_by_key(|e| Reverse(e.timestamp));
     filtered.truncate(limit);
     filtered
 }
