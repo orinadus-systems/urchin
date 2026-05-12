@@ -16,7 +16,7 @@ crates/
 ## Build
 
 ```bash
-cd ~/dev/orinadus/substrate/urchin-rust
+cd ~/dev/orinadus/urchin-rust
 cargo build              # dev binary → target/debug/urchin
 cargo build --release    # release binary
 cargo test               # 56 tests
@@ -37,7 +37,7 @@ After `cargo build`, restart the service to pick up the new binary.
 
 All AI clients (Claude, VS Code, Copilot CLI) are configured to use:
 ```
-/home/samhc/dev/orinadus/substrate/urchin-rust/target/debug/urchin mcp
+/home/samhc/dev/orinadus/urchin-rust/target/debug/urchin mcp
 ```
 
 MCP runs as a child process launched on-demand. Rebuilding the binary is enough.
