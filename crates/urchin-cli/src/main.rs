@@ -195,6 +195,24 @@ async fn serve() -> Result<()> {
     let identity = Arc::new(Identity::resolve());
     let jp       = cfg.journal_path.clone();
 
+    // Auto-rebuild SQLite index if it exists but is empty (stale or freshly created)
+    {
+        use urchin_core::index::Index;
+        let index_path = jp.with_file_name("index.db");
+        if index_path.exists() {
+            if let Ok(idx) = Index::open(&index_path) {
+                if idx.count().unwrap_or(0) == 0 && jp.exists() {
+                    tracing::info!("[DAEMON] Index is empty — rebuilding from journal");
+                    if let Err(e) = idx.rebuild_from_journal(&jp) {
+                        tracing::warn!("[DAEMON] Index rebuild failed: {}", e);
+                    } else {
+                        tracing::info!("[DAEMON] Index rebuild complete");
+                    }
+                }
+            }
+        }
+    }
+
     // Cloud shuttle config — cloned before cfg is borrowed by intake server
     let cloud_url          = cfg.cloud_url.clone();
     let cloud_token        = cfg.cloud_token.clone();
@@ -763,8 +781,10 @@ fn agent_cmd(action: AgentAction) -> Result<()> {
 
 fn truncate_line(s: &str, max: usize) -> String {
     let first = s.lines().next().unwrap_or("").trim();
-    if first.len() > max {
-        format!("{}…", &first[..max])
+    let chars: Vec<char> = first.chars().collect();
+    if chars.len() > max {
+        let truncated: String = chars[..max].iter().collect();
+        format!("{}…", truncated)
     } else {
         first.to_string()
     }

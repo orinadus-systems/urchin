@@ -62,6 +62,19 @@ impl Index {
         Ok(())
     }
 
+    /// Returns the number of events in the index. Returns 0 if the table doesn't exist yet.
+    pub fn count(&self) -> Result<usize> {
+        let conn = self.connect()?;
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM events",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        Ok(n as usize)
+    }
+
     pub(crate) fn insert_batch(&self, rows: &[IndexRow]) -> Result<()> {
         if rows.is_empty() {
             return Ok(());

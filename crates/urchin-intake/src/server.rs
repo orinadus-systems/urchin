@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::Json,
     routing::{get, post},
@@ -53,6 +53,8 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ingest", post(ingest))
+        .route("/recent", get(recent))
+        .route("/query", get(query))
         .with_state(state)
 }
 
@@ -144,6 +146,65 @@ async fn ingest(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})));
     }
     (StatusCode::OK, Json(json!({"id": id, "status": "ok"})))
+}
+
+#[derive(serde::Deserialize)]
+struct RecentParams {
+    n:      Option<usize>,
+    source: Option<String>,
+    hours:  Option<f64>,
+}
+
+async fn recent(
+    State(state): State<AppState>,
+    Query(params): Query<RecentParams>,
+) -> (StatusCode, Json<Value>) {
+    let n     = params.n.unwrap_or(20).min(200);
+    let hours = params.hours.unwrap_or(168.0);
+    match state.journal.query_recent(hours, params.source.as_deref(), n) {
+        Ok(events) => {
+            let items: Vec<Value> = events.iter().map(|e| json!({
+                "id":        e.id,
+                "timestamp": e.timestamp,
+                "source":    e.source,
+                "kind":      e.kind,
+                "content":   e.content,
+            })).collect();
+            (StatusCode::OK, Json(json!({"events": items, "count": items.len()})))
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct QueryParams {
+    q:     String,
+    limit: Option<usize>,
+    hours: Option<f64>,
+}
+
+async fn query(
+    State(state): State<AppState>,
+    Query(params): Query<QueryParams>,
+) -> (StatusCode, Json<Value>) {
+    if params.q.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "q must not be empty"})));
+    }
+    let limit = params.limit.unwrap_or(20).min(200);
+    let hours = params.hours.unwrap_or(168.0);
+    match state.journal.query_search(&params.q, hours, limit) {
+        Ok(events) => {
+            let items: Vec<Value> = events.iter().map(|e| json!({
+                "id":        e.id,
+                "timestamp": e.timestamp,
+                "source":    e.source,
+                "kind":      e.kind,
+                "content":   e.content,
+            })).collect();
+            (StatusCode::OK, Json(json!({"events": items, "count": items.len(), "query": params.q})))
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))),
+    }
 }
 
 #[cfg(test)]
