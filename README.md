@@ -5,22 +5,22 @@
 **The universal substrate. Every tool, one memory.**
 
 ![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust&logoColor=white)
-![Status](https://img.shields.io/badge/status-v0.3.4-brightgreen)
+![Status](https://img.shields.io/badge/status-v0.3.5-brightgreen)
 ![Local-first](https://img.shields.io/badge/local--first-yes-blue)
-![Tests](https://img.shields.io/badge/tests-138%20passing-success)
+![Tests](https://img.shields.io/badge/tests-125%20passing-success)
 ![CI](https://github.com/orinadus-systems/urchin/actions/workflows/ci.yml/badge.svg)
 
 </div>
 
 ---
 
-Talking to AI today is like working with the world's most capable engineer who has severe amnesia. Every session starts blank. You copy-paste the error log, the code, the decision from ten minutes ago. Every time.
+Every platform you touch collects data about you. Your steps on Apple Health, your purchases in your bank app, your location on Google, your watch history on YouTube, your conversations with every AI. They keep it scattered across dozens of silos. They build profiles. They show you nothing.
 
-Your digital life is a house. AI today has a small window it can sometimes peek through: catching glimpses of the living room from outside, never seeing what's beyond. Urchin smashes through that window. It lives inside the house with you.
+Urchin runs locally and collects the same data: AI conversations, shell commands, code commits, calendar events, purchases, health metrics, location, search history, watch history. It writes to a single file on your machine. An append-only journal. Yours.
 
-Claude, Copilot, Gemini, Codex, OpenCode, the shell, git: each tool has its own memory. None of them share. Urchin runs as a silent local daemon, collects signals from every tool into one append-only journal, and surfaces that context through MCP and HTTP so any agent, IDE, or script can read what every other tool did.
+Any agent, IDE, or script can then read that journal. You own the full picture, unified, without any platform's gate in the way.
 
-> Urchin does not own your tools. It connects them.
+> Urchin does not own your tools. It reads them.
 > Additive. Passive. Silent. Nothing you already use loses anything.
 
 ---
@@ -29,16 +29,20 @@ Claude, Copilot, Gemini, Codex, OpenCode, the shell, git: each tool has its own 
 
 ```mermaid
 flowchart LR
-    subgraph collectors["Collectors (read-only)"]
-        SH[shell stdout]
-        GIT[git log/diff]
-        CL[claude webview]
+    subgraph collectors["Connectors (read-only)"]
+        SH[shell]
+        GIT[git]
+        CL[claude]
         CP[copilot]
         GM[gemini]
-        CDX[codex sqlite]
-        OC[opencode sqlite]
-        LM[local model jsonl]
-        HI[http POST :9741]
+        CDX[codex]
+        OC[opencode]
+        LM[local model]
+        GT[google takeout]
+        AH[apple health]
+        BC[bank csv]
+        CAL[calendar ics]
+        HI[http POST]
     end
 
     subgraph daemon["urchin-core daemon"]
@@ -48,10 +52,9 @@ flowchart LR
     end
 
     subgraph consumers["Consumers"]
-        MCP[MCP stdio\n9 tools]
-        HTTP[HTTP GET\n/query]
-        VAULT[vault projection\n~/brain]
-        SYNC[cloud sync\norinadus-platform]
+        MCP[MCP stdio\n8 tools]
+        HTTP[HTTP GET\n/recent /query]
+        SYNC[cloud sync]
         IDE[IDE\nCursor / Zed]
     end
 
@@ -63,11 +66,14 @@ flowchart LR
     CDX --> J
     OC  --> J
     LM  --> J
+    GT  --> J
+    AH  --> J
+    BC  --> J
+    CAL --> J
     HI  --> J
 
     DB --> MCP
     DB --> HTTP
-    DB --> VAULT
     DB --> SYNC
     MCP --> IDE
 
@@ -77,10 +83,10 @@ flowchart LR
     classDef con  fill:#064e3b,stroke:#10b981,color:#d1fae5
     classDef ide  fill:#1c1917,stroke:#a78bfa,color:#ede9fe,font-weight:bold
 
-    class SH,GIT,CL,CP,GM,CDX,OC,LM,HI col
+    class SH,GIT,CL,CP,GM,CDX,OC,LM,GT,AH,BC,CAL,HI col
     class J core
     class DB db
-    class MCP,HTTP,VAULT,SYNC con
+    class MCP,HTTP,SYNC con
     class IDE ide
 ```
 
@@ -94,31 +100,24 @@ Collectors are passive readers. They never write back to source tools. The journ
 |---|---|---|
 | Core types + journal | ✅ shipped | `Event`, `Journal`, `Identity`, `Config`; append-only JSONL |
 | Identity envelope | ✅ shipped | account/device on every event |
-| TOML config + env overrides | ✅ shipped | defaults → `~/.config/urchin/config.toml` → env |
-| HTTP intake | ✅ shipped | `POST /ingest`, `GET /health`; loopback-only |
-| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 10 tools |
-| Daemon mode | ✅ shipped | `urchin serve`; collector loop + intake server |
-| Shell collector | ✅ shipped | `~/.bash_history`, byte-offset checkpoint |
-| Git collector | ✅ shipped | per-repo SHA checkpoint, silent first run |
-| Claude collector | ✅ shipped | `~/.claude/projects/` JSONL transcripts |
-| Copilot collector | ✅ shipped | `~/.copilot/command-history-state.json`, content-addressed checkpoint |
-| Gemini collector | ✅ shipped | `~/.gemini/tmp/*/chats/*.jsonl`, partial-offset checkpoint |
-| Collector trait + registry | ✅ shipped | object-safe `Collector` trait, `CollectorRegistry::with_defaults()`, `is_available()` self-discovery |
-| Codex collector | ✅ shipped | `~/.codex/state_5.sqlite`, threads table, `first_user_message` intent capture |
-| OpenCode collector | ✅ shipped | `~/.local/share/opencode/opencode.db`, message JOIN session, user-role filter |
-| Local model collector | ✅ shipped | `~/.local/share/urchin/local-model.jsonl` drop file; Ollama, llama.cpp, any harness |
-| `urchin-agent` Reasoner trait | ✅ shipped | `EchoReasoner` (deterministic), `HttpReasoner` (Ollama-compat via `URCHIN_REASONER_URL`) |
-| Ephemeral mode | ✅ shipped | `EphemeralMode`; file-backed flag + in-process `AtomicBool`, cross-process aware |
-| Intake auth | ✅ shipped | Optional Bearer token (`URCHIN_INTAKE_TOKEN`), loopback-only |
-| Lockless intake pipe | ✅ shipped | Tokio MPSC unbounded channel, background writer thread, `flush()` on all write paths; 138 tests |
-| SQLite projection index | ✅ shipped | WAL mode, batch INSERT per flush, O(log n) queries, `urchin rebuild-index` command |
-| OS-level collectors | 🔲 planned | Active window, inotify file watcher, AI traffic interceptor |
-| WebView intercept | 🔲 planned | Phase 3: Tauri captures ChatGPT/Gemini/Claude web natively |
-| Vector embeddings | 🔲 planned | Phase 4: upgrades `urchin_semantic_search` from token-cosine to real vectors |
-| `.urchinignore` runtime | 🔲 planned | Phase 5: spec exists in `SOVEREIGNTY.md`, not yet wired |
-| Multi-device sync | 🔲 planned | Phase 6: deterministic chunk sync |
+| TOML config + env overrides | ✅ shipped | defaults to `~/.config/urchin/config.toml` then env |
+| HTTP intake | ✅ shipped | `POST /ingest`, `POST /ingest/batch`, `GET /health`; loopback-only |
+| MCP server (stdio) | ✅ shipped | JSON-RPC 2.0, 8 tools |
+| Daemon mode | ✅ shipped | `urchin serve`; connector loop + intake server |
+| Dev/AI connectors | ✅ shipped | shell, git, claude, copilot, gemini, codex, opencode, local-model |
+| Personal data connectors | ✅ shipped | google-takeout, apple-health, bank-csv, calendar |
+| Personal EventKind variants | ✅ shipped | purchase, location, health_metric, calendar_event, search_query, watch_history |
+| EventMeta struct | ✅ shipped | structured optional fields for personal data kinds |
+| Ephemeral mode | ✅ shipped | file-backed flag, cross-process aware |
+| Intake auth | ✅ shipped | optional Bearer token, loopback-only |
+| SQLite projection index | ✅ shipped | WAL mode, O(log n) queries, `urchin rebuild-index` |
+| OS-level connectors | 🔲 planned | active window, inotify file watcher, AI traffic intercept |
+| WebView intercept | 🔲 planned | Tauri captures AI web UIs natively |
+| Vector embeddings | 🔲 planned | semantic search upgrade from token-cosine to real vectors |
+| `.urchinignore` runtime | 🔲 planned | spec in SOVEREIGNTY.md, not yet wired |
+| Multi-device sync | 🔲 planned | deterministic chunk sync |
 
-**138 tests** across `urchin-core` (26), `urchin-intake` (8), `urchin-mcp` (20), `urchin-collectors` (52), `urchin-vault` (3), `urchin-agent` (29).
+**125 tests** across `urchin-core` (28), `urchin-intake` (12), `urchin-mcp` (16), `urchin-collectors` (69).
 
 ---
 
@@ -152,7 +151,10 @@ cargo build                        # → target/debug/urchin
 | `urchin collect all` | run every collector |
 | `urchin recent [--n N] [--source S]` | show last N events |
 | `urchin query <text>` | keyword search across journal |
-| `urchin vault project [--date YYYY-MM-DD]` | project today's events into brain daily note |
+| `urchin collect google-takeout` | ingest Google Takeout export (location, search, YouTube) |
+| `urchin collect apple-health` | ingest Apple Health export.xml |
+| `urchin collect bank-csv` | ingest bank CSV files |
+| `urchin collect calendar` | ingest .ics calendar files |
 | `urchin sync` | push journal to cloud |
 | `urchin rebuild-index` | wipe and rebuild SQLite index from JSONL source of truth |
 
@@ -175,11 +177,10 @@ Urchin reads from this file; it never writes to it. The collector is a no-op whe
 ```
 crates/
   urchin-core        zero I/O: Event, Journal, Identity, Config
-  urchin-intake      axum: POST /ingest, GET /health (127.0.0.1:18799)
-  urchin-mcp         MCP over stdio: 10 tools, JSON-RPC 2.0
-  urchin-collectors  shell, git, claude, copilot, gemini, codex, opencode, local-model (all live)
-  urchin-vault       vault projection: writes marker blocks into ~/brain
-  urchin-agent       ReAct skeleton: load context, synthesise, write back as Agent event
+  urchin-intake      axum: POST /ingest, POST /ingest/batch, GET /health (127.0.0.1:18799)
+  urchin-mcp         MCP over stdio: 8 tools, JSON-RPC 2.0
+  urchin-collectors  all connectors: shell, git, claude, copilot, gemini, codex, opencode,
+                     local-model, google-takeout, apple-health, bank-csv, calendar
   urchin-sdk         shared types for external integrations
   urchin-cli         single binary: target/debug/urchin
 ```
@@ -193,10 +194,11 @@ crates/
 | `id` | UUID v4 | generated on create |
 | `timestamp` | UTC ISO-8601 | |
 | `source` | string | `claude` / `copilot` / `shell` / `mcp` / ... |
-| `kind` | enum | `Conversation` / `Agent` / `Command` / `Commit` / `File` / `Other` |
+| `kind` | enum | `conversation` / `agent` / `command` / `commit` / `file` / `decision` / `purchase` / `location` / `health_metric` / `calendar_event` / `search_query` / `watch_history` / `other` |
 | `content` | string | the payload |
 | `workspace` / `session` / `title` / `tags` | optional | context |
 | `actor` | optional | `{ account, device, workspace }` |
+| `meta` | optional | structured fields for personal data kinds (see [EVENTS.md](EVENTS.md)) |
 
 Append-only JSONL. Events are never mutated. Unknown fields are ignored on read.
 
@@ -214,8 +216,6 @@ Append-only JSONL. Events are never mutated. Unknown fields are ignored on read.
 | `urchin_workspace_context` | `path` | events scoped to a specific workspace CWD; call at session start |
 | `urchin_remember` | `content`, `tags?`, `workspace?` | quick-capture without required workspace |
 | `urchin_ephemeral` | `action: start\|end\|status` | burn mode; suppresses all writes until `end` |
-| `urchin_agent_reflect` | `goal`, `hours?`, `limit?` | ReAct reflection: load context, synthesise, write back to journal |
-| `urchin_semantic_search` | `query`, `limit?` | Token-cosine similarity search (vector embeddings in Phase 4) |
 
 Errors return `isError: true`. Queries return one line per event: `[timestamp] source | content`.
 

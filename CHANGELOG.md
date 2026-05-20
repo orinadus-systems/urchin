@@ -7,7 +7,50 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [0.3.4] — 2026-05-04
+## [0.3.5] - 2026-05-19
+
+### Removed
+
+- `urchin-agent` crate: ReAct reasoning loop removed. Reasoning belongs in consumers, not the ingestion substrate.
+- `urchin-vault` crate: vault projection removed. Writing to a vault is a consumer responsibility.
+- `urchin_agent_reflect` and `urchin_semantic_search` MCP tools removed (8 tools remain).
+- `urchin agent reflect` and `urchin vault project` CLI commands removed.
+
+### Added
+
+**Personal EventKind variants** (`urchin-core`)
+- `Purchase`, `Location`, `HealthMetric`, `CalendarEvent`, `SearchQuery`, `WatchHistory`
+- Serde representation changed from `lowercase` to `snake_case` (backwards-compatible for all existing single-word variants)
+
+**EventMeta struct** (`urchin-core`)
+- Optional structured fields: `amount`, `currency`, `merchant`, `category`, `lat`, `lng`, `value`, `unit`, `duration_secs`, `attendees`
+- Added as `meta: Option<EventMeta>` on `Event`, omitted from JSON when absent
+
+**Personal data connectors** (`urchin-collectors`)
+- `google-takeout`: reads Location History/Records.json, Search and YouTube activity from `~/.local/share/urchin/imports/google-takeout/`
+- `apple-health`: streaming XML parser via `quick-xml` for steps, heart rate, sleep, and workouts from `~/.local/share/urchin/imports/apple-health/export.xml`
+- `bank-csv`: auto-detects Chase, BofA, and generic column layouts from `~/.local/share/urchin/imports/bank/*.csv`
+- `calendar`: iCal VEVENT parser (handles folded lines, computes duration, counts attendees) from `~/.local/share/urchin/imports/calendar/*.ics`
+- All four registered in `CollectorRegistry::with_defaults()` and accessible via `urchin collect <name>`
+
+**Batch intake endpoint** (`urchin-intake`)
+- `POST /ingest/batch`: accepts up to 1000 events per request
+- Validates each event individually; partial success allowed
+- Returns `{ "accepted": N, "dropped": N, "errors": [...] }`
+- Ephemeral mode drops all. Auth required if token configured.
+
+**Documentation**
+- `CONNECTORS.md`: Collector trait, checkpoint patterns, connector table, how to add a connector
+- `EVENTS.md`: full EventKind and EventMeta field reference
+- `PRIVACY.md`: what is stored, what is not transmitted, ephemeral mode, deletion
+
+**Bug fixes** (pre-existing)
+- `codex.rs`: fixed `truncate` visibility (`fn` -> `pub(crate)`) and import in `codex.rs` tests
+- `codex.rs` tests: added missing `history_path` field to `CodexOpts` initializers
+
+---
+
+## [0.3.4] - 2026-05-04
 
 ### Added
 
