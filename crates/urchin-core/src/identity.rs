@@ -9,10 +9,8 @@ pub struct Identity {
 
 impl Identity {
     pub fn resolve() -> Self {
-        let account = std::env::var("URCHIN_ACCOUNT")
-            .unwrap_or_else(|_| whoami_account());
-        let device = std::env::var("URCHIN_DEVICE")
-            .unwrap_or_else(|_| hostname());
+        let account = std::env::var("URCHIN_ACCOUNT").unwrap_or_else(|_| whoami_account());
+        let device = std::env::var("URCHIN_DEVICE").unwrap_or_else(|_| hostname());
         Self { account, device }
     }
 }

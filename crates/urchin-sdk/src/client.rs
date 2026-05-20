@@ -52,14 +52,10 @@ impl UrchinClient {
         if let Some(token) = &self.token {
             req = req.bearer_auth(token);
         }
-        let resp = req
-            .send()
-            .await
-            .context("failed to reach Urchin daemon")?;
+        let resp = req.send().await.context("failed to reach Urchin daemon")?;
 
         let status = resp.status();
-        let body: serde_json::Value = resp.json().await
-            .context("non-JSON response from daemon")?;
+        let body: serde_json::Value = resp.json().await.context("non-JSON response from daemon")?;
 
         if !status.is_success() {
             return Err(anyhow::Error::new(HttpError {
@@ -88,13 +84,12 @@ impl UrchinClient {
         if let Some(token) = &self.token {
             req = req.bearer_auth(token);
         }
-        let resp = req
-            .send()
-            .await
-            .context("failed to reach cloud hub")?;
+        let resp = req.send().await.context("failed to reach cloud hub")?;
 
         let status = resp.status();
-        let body: serde_json::Value = resp.json().await
+        let body: serde_json::Value = resp
+            .json()
+            .await
             .context("non-JSON response from cloud hub")?;
 
         if !status.is_success() {
@@ -104,13 +99,15 @@ impl UrchinClient {
             }));
         }
 
-        let events: Vec<Event> = serde_json::from_value(
-            body["events"].clone()
-        ).context("failed to deserialize events array")?;
+        let events: Vec<Event> = serde_json::from_value(body["events"].clone())
+            .context("failed to deserialize events array")?;
 
         let next_cursor = body["next_cursor"].as_str().map(|s| s.to_string());
 
-        Ok(PullResponse { events, next_cursor })
+        Ok(PullResponse {
+            events,
+            next_cursor,
+        })
     }
 
     /// Return a fluent builder pre-wired to this client.

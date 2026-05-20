@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::{fs, collections::HashMap};
+use std::{collections::HashMap, fs};
 
 use anyhow::Result;
 
@@ -59,10 +59,9 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &CalendarOpts) -> R
         let raw = fs::read_to_string(path)?;
         let events = parse_ical(&raw);
         for vevent in events {
-            let uid = vevent
-                .get("UID")
-                .cloned()
-                .unwrap_or_else(|| format!("{:x}", hash_str(vevent.get("SUMMARY").map_or("", |s| s))));
+            let uid = vevent.get("UID").cloned().unwrap_or_else(|| {
+                format!("{:x}", hash_str(vevent.get("SUMMARY").map_or("", |s| s)))
+            });
             if seen.contains(&uid) {
                 continue;
             }
@@ -73,7 +72,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &CalendarOpts) -> R
             }
 
             let dt_start = vevent.get("DTSTART").cloned().unwrap_or_default();
-            let dt_end   = vevent.get("DTEND").cloned().unwrap_or_default();
+            let dt_end = vevent.get("DTEND").cloned().unwrap_or_default();
             let attendees: u32 = vevent
                 .get("ATTENDEE_COUNT")
                 .and_then(|s| s.parse().ok())
@@ -93,8 +92,8 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &CalendarOpts) -> R
                 ..Default::default()
             });
             event.actor = Some(Actor {
-                account:   Some(identity.account.clone()),
-                device:    Some(identity.device.clone()),
+                account: Some(identity.account.clone()),
+                device: Some(identity.device.clone()),
                 workspace: None,
             });
             journal.append(&event)?;
@@ -197,12 +196,16 @@ fn duration_between(start: &str, end: &str) -> Option<u64> {
     let s = parse_ical_dt(start)?;
     let e = parse_ical_dt(end)?;
     let diff = (e - s).num_seconds();
-    if diff > 0 { Some(diff as u64) } else { None }
+    if diff > 0 {
+        Some(diff as u64)
+    } else {
+        None
+    }
 }
 
 fn hash_str(s: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
     let mut h = DefaultHasher::new();
     s.hash(&mut h);
     h.finish()
@@ -217,9 +220,12 @@ mod tests {
 
     fn setup(tmp: &TempDir) -> (Journal, Identity, CalendarOpts) {
         let journal = Journal::new(tmp.path().join("journal.jsonl"));
-        let identity = Identity { account: "test".into(), device: "test".into() };
+        let identity = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         let opts = CalendarOpts {
-            import_dir:      tmp.path().join("calendar"),
+            import_dir: tmp.path().join("calendar"),
             checkpoint_path: tmp.path().join("ckpt.json"),
         };
         (journal, identity, opts)
@@ -272,7 +278,10 @@ END:VCALENDAR\r\n";
         collect(&j, &id, &opts).unwrap();
 
         let events = j.read_all().unwrap();
-        let standup = events.iter().find(|e| e.content.contains("standup")).unwrap();
+        let standup = events
+            .iter()
+            .find(|e| e.content.contains("standup"))
+            .unwrap();
         assert_eq!(standup.meta.as_ref().unwrap().attendees, Some(2));
     }
 
@@ -285,7 +294,10 @@ END:VCALENDAR\r\n";
         collect(&j, &id, &opts).unwrap();
 
         let events = j.read_all().unwrap();
-        let standup = events.iter().find(|e| e.content.contains("standup")).unwrap();
+        let standup = events
+            .iter()
+            .find(|e| e.content.contains("standup"))
+            .unwrap();
         assert_eq!(standup.meta.as_ref().unwrap().duration_secs, Some(1800));
     }
 

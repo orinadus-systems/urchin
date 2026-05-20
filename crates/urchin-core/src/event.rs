@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The canonical unit of memory in Urchin.
@@ -128,7 +128,11 @@ mod tests {
         let event = Event::new("cli", EventKind::Agent, "test");
         let json = serde_json::to_string(&event).unwrap();
         assert!(!json.contains("null"), "nulls should be omitted: {}", json);
-        assert!(!json.contains("\"tags\":[]"), "empty tags should be omitted: {}", json);
+        assert!(
+            !json.contains("\"tags\":[]"),
+            "empty tags should be omitted: {}",
+            json
+        );
     }
 
     #[test]
@@ -162,7 +166,10 @@ mod tests {
         assert!(!json.contains("null"), "nulls should be omitted: {}", json);
         assert!(json.contains("\"amount\":4.5"));
         assert!(json.contains("\"merchant\":\"Blue Bottle\""));
-        assert!(!json.contains("lat"), "unset location fields should be absent");
+        assert!(
+            !json.contains("lat"),
+            "unset location fields should be absent"
+        );
     }
 
     #[test]

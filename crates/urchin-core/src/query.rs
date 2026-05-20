@@ -1,8 +1,13 @@
-use std::cmp::Reverse;
-use chrono::{Duration, Utc};
 use crate::event::Event;
+use chrono::{Duration, Utc};
+use std::cmp::Reverse;
 
-pub fn recent<'a>(events: &'a [Event], hours: f64, source: Option<&str>, limit: usize) -> Vec<&'a Event> {
+pub fn recent<'a>(
+    events: &'a [Event],
+    hours: f64,
+    source: Option<&str>,
+    limit: usize,
+) -> Vec<&'a Event> {
     let cutoff = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
     let mut filtered: Vec<&Event> = events
         .iter()
@@ -14,7 +19,12 @@ pub fn recent<'a>(events: &'a [Event], hours: f64, source: Option<&str>, limit: 
     filtered
 }
 
-pub fn search_content<'a>(events: &'a [Event], query: &str, hours: f64, limit: usize) -> Vec<&'a Event> {
+pub fn search_content<'a>(
+    events: &'a [Event],
+    query: &str,
+    hours: f64,
+    limit: usize,
+) -> Vec<&'a Event> {
     let q = query.to_lowercase();
     let cutoff = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
     let mut filtered: Vec<&Event> = events
@@ -27,7 +37,12 @@ pub fn search_content<'a>(events: &'a [Event], query: &str, hours: f64, limit: u
     filtered
 }
 
-pub fn project_context<'a>(events: &'a [Event], project: &str, hours: f64, limit: usize) -> Vec<&'a Event> {
+pub fn project_context<'a>(
+    events: &'a [Event],
+    project: &str,
+    hours: f64,
+    limit: usize,
+) -> Vec<&'a Event> {
     let p = project.to_lowercase();
     let cutoff = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
     let mut filtered: Vec<&Event> = events
@@ -36,7 +51,10 @@ pub fn project_context<'a>(events: &'a [Event], project: &str, hours: f64, limit
         .filter(|e| {
             e.content.to_lowercase().contains(&p)
                 || e.tags.iter().any(|t| t.to_lowercase().contains(&p))
-                || e.workspace.as_deref().map(|w| w.to_lowercase().contains(&p)).unwrap_or(false)
+                || e.workspace
+                    .as_deref()
+                    .map(|w| w.to_lowercase().contains(&p))
+                    .unwrap_or(false)
         })
         .collect();
     filtered.sort_by_key(|e| Reverse(e.timestamp));
@@ -45,7 +63,12 @@ pub fn project_context<'a>(events: &'a [Event], project: &str, hours: f64, limit
 }
 
 /// Events whose workspace starts with `path` (case-insensitive prefix match).
-pub fn workspace_context<'a>(events: &'a [Event], path: &str, hours: f64, limit: usize) -> Vec<&'a Event> {
+pub fn workspace_context<'a>(
+    events: &'a [Event],
+    path: &str,
+    hours: f64,
+    limit: usize,
+) -> Vec<&'a Event> {
     let p = path.to_lowercase();
     let cutoff = Utc::now() - Duration::milliseconds((hours * 3_600_000.0) as i64);
     let mut filtered: Vec<&Event> = events
@@ -72,7 +95,13 @@ pub fn format_events(events: &[&Event]) -> String {
         .map(|e| {
             let ts = e.timestamp.format("%Y-%m-%dT%H:%M:%SZ");
             let brain = e.brain.as_deref().unwrap_or("-");
-            format!("[{}] {} ({}) — {}", ts, e.source, brain, truncate(&e.content, 120))
+            format!(
+                "[{}] {} ({}) — {}",
+                ts,
+                e.source,
+                brain,
+                truncate(&e.content, 120)
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")

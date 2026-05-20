@@ -7,9 +7,9 @@
 //! stored in the state dir.
 
 use crate::claude::truncate;
-use std::path::PathBuf;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
@@ -26,8 +26,8 @@ use crate::state::state_dir;
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 pub struct CodexOpts {
-    pub db_path:         PathBuf,
-    pub history_path:    PathBuf,
+    pub db_path: PathBuf,
+    pub history_path: PathBuf,
     pub checkpoint_path: PathBuf,
 }
 
@@ -35,8 +35,8 @@ impl CodexOpts {
     pub fn defaults() -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
         Self {
-            db_path:         home.join(".codex").join("state_5.sqlite"),
-            history_path:    home.join(".codex").join("history.jsonl"),
+            db_path: home.join(".codex").join("state_5.sqlite"),
+            history_path: home.join(".codex").join("history.jsonl"),
             checkpoint_path: state_dir().join("codex.json"),
         }
     }
@@ -108,7 +108,11 @@ fn collect_history(
     ckpt: &mut Checkpoint,
 ) -> Result<usize> {
     let file_size = fs::metadata(&opts.history_path)?.len();
-    let start = if ckpt.history_offset > file_size { 0 } else { ckpt.history_offset };
+    let start = if ckpt.history_offset > file_size {
+        0
+    } else {
+        ckpt.history_offset
+    };
     let mut file = File::open(&opts.history_path)?;
     file.seek(SeekFrom::Start(start))?;
 
@@ -185,12 +189,12 @@ fn collect_threads(
 
     let rows = stmt.query_map([ckpt.last_ts_ms], |row| {
         Ok((
-            row.get::<_, String>(0)?,   // id
-            row.get::<_, i64>(1)?,       // ts_ms
-            row.get::<_, String>(2)?,    // first_user_message
-            row.get::<_, String>(3)?,    // title
-            row.get::<_, String>(4)?,    // cwd
-            row.get::<_, String>(5)?,    // model_provider
+            row.get::<_, String>(0)?, // id
+            row.get::<_, i64>(1)?,    // ts_ms
+            row.get::<_, String>(2)?, // first_user_message
+            row.get::<_, String>(3)?, // title
+            row.get::<_, String>(4)?, // cwd
+            row.get::<_, String>(5)?, // model_provider
         ))
     })?;
 
@@ -218,16 +222,20 @@ fn collect_threads(
 
         let mut event = Event::new("codex", EventKind::Conversation, content.clone());
         event.timestamp = ts;
-        event.workspace = if cwd.is_empty() { None } else { Some(cwd.clone()) };
-        event.tags      = vec![
+        event.workspace = if cwd.is_empty() {
+            None
+        } else {
+            Some(cwd.clone())
+        };
+        event.tags = vec![
             "auto-collected".to_string(),
             "codex".to_string(),
             format!("session:{}", id),
             format!("model:{}", provider),
         ];
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: if cwd.is_empty() { None } else { Some(cwd) },
         });
 
@@ -274,14 +282,17 @@ mod tests {
     fn make_opts(tmp: &TempDir, db_path: PathBuf) -> CodexOpts {
         CodexOpts {
             db_path,
-            history_path:    tmp.path().join("history.jsonl"),
+            history_path: tmp.path().join("history.jsonl"),
             checkpoint_path: tmp.path().join("codex.json"),
         }
     }
 
     fn dummy_journal(tmp: &TempDir) -> (Journal, Identity) {
         let j = Journal::new(tmp.path().join("journal.jsonl"));
-        let id = Identity { account: "test".into(), device: "test".into() };
+        let id = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         (j, id)
     }
 
@@ -289,8 +300,8 @@ mod tests {
     fn no_db_returns_zero() {
         let tmp = TempDir::new().unwrap();
         let opts = CodexOpts {
-            db_path:         tmp.path().join("missing.sqlite"),
-            history_path:    tmp.path().join("history.jsonl"),
+            db_path: tmp.path().join("missing.sqlite"),
+            history_path: tmp.path().join("history.jsonl"),
             checkpoint_path: tmp.path().join("ckpt.json"),
         };
         let (j, id) = dummy_journal(&tmp);
@@ -300,7 +311,7 @@ mod tests {
     #[test]
     fn empty_db_returns_zero() {
         let tmp = TempDir::new().unwrap();
-        let db  = make_db(tmp.path());
+        let db = make_db(tmp.path());
         let opts = make_opts(&tmp, db);
         let (j, id) = dummy_journal(&tmp);
         assert_eq!(collect(&j, &id, &opts).unwrap(), 0);
@@ -309,19 +320,21 @@ mod tests {
     #[test]
     fn collects_new_sessions() {
         let tmp = TempDir::new().unwrap();
-        let db  = make_db(tmp.path());
+        let db = make_db(tmp.path());
         {
             let conn = rusqlite::Connection::open(&db).unwrap();
             conn.execute(
                 "INSERT INTO threads (id, created_at_ms, first_user_message, cwd, model_provider)
                  VALUES ('a1', 1700000000000, 'refactor auth module', '/home/sam', 'openai')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
             conn.execute(
                 "INSERT INTO threads (id, created_at_ms, first_user_message, cwd, model_provider)
                  VALUES ('a2', 1700000001000, 'add retry logic', '/home/sam', 'anthropic')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
         let opts = make_opts(&tmp, db);
         let (j, id) = dummy_journal(&tmp);
@@ -331,14 +344,15 @@ mod tests {
     #[test]
     fn watermark_prevents_reprocessing() {
         let tmp = TempDir::new().unwrap();
-        let db  = make_db(tmp.path());
+        let db = make_db(tmp.path());
         {
             let conn = rusqlite::Connection::open(&db).unwrap();
             conn.execute(
                 "INSERT INTO threads (id, created_at_ms, first_user_message, cwd, model_provider)
                  VALUES ('b1', 1700000000000, 'first session', '/home/sam', 'openai')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
         let opts = make_opts(&tmp, db.clone());
         let (j, id) = dummy_journal(&tmp);
@@ -351,7 +365,7 @@ mod tests {
     #[test]
     fn skips_slash_commands_and_empty() {
         let tmp = TempDir::new().unwrap();
-        let db  = make_db(tmp.path());
+        let db = make_db(tmp.path());
         {
             let conn = rusqlite::Connection::open(&db).unwrap();
             // slash command title
@@ -371,7 +385,8 @@ mod tests {
                 "INSERT INTO threads (id, created_at_ms, first_user_message, cwd, model_provider)
                  VALUES ('c3', 1700000002000, 'build the codex collector', '/home/sam', 'openai')",
                 [],
-            ).unwrap();
+            )
+            .unwrap();
         }
         let opts = make_opts(&tmp, db);
         let (j, id) = dummy_journal(&tmp);
@@ -381,7 +396,7 @@ mod tests {
     #[test]
     fn archived_sessions_skipped() {
         let tmp = TempDir::new().unwrap();
-        let db  = make_db(tmp.path());
+        let db = make_db(tmp.path());
         {
             let conn = rusqlite::Connection::open(&db).unwrap();
             conn.execute(

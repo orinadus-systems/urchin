@@ -141,10 +141,14 @@ fn ingest_locations(
         if let Some(t) = ts {
             event.timestamp = t;
         }
-        event.meta = Some(EventMeta { lat, lng, ..Default::default() });
+        event.meta = Some(EventMeta {
+            lat,
+            lng,
+            ..Default::default()
+        });
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: None,
         });
         journal.append(&event)?;
@@ -195,8 +199,8 @@ fn ingest_activity(
             event.timestamp = t;
         }
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: None,
         });
         journal.append(&event)?;
@@ -235,9 +239,12 @@ mod tests {
 
     fn setup(tmp: &TempDir) -> (Journal, Identity, GoogleTakeoutOpts) {
         let journal = Journal::new(tmp.path().join("journal.jsonl"));
-        let identity = Identity { account: "test".into(), device: "test".into() };
+        let identity = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         let opts = GoogleTakeoutOpts {
-            import_dir:      tmp.path().join("google-takeout"),
+            import_dir: tmp.path().join("google-takeout"),
             checkpoint_path: tmp.path().join("ckpt.json"),
         };
         (journal, identity, opts)
@@ -261,12 +268,16 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (j, id, opts) = setup(&tmp);
 
-        write(&tmp, "google-takeout/Location History/Records.json", r#"{
+        write(
+            &tmp,
+            "google-takeout/Location History/Records.json",
+            r#"{
             "locations": [
                 {"timestamp": "2024-01-15T10:00:00Z", "latitudeE7": 477654321, "longitudeE7": -1224567890},
                 {"timestamp": "2024-01-16T10:00:00Z", "latitudeE7": 477654322, "longitudeE7": -1224567891}
             ]
-        }"#);
+        }"#,
+        );
 
         assert_eq!(collect(&j, &id, &opts).unwrap(), 2);
         let events = j.read_all().unwrap();
@@ -282,11 +293,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (j, id, opts) = setup(&tmp);
 
-        write(&tmp, "google-takeout/Location History/Records.json", r#"{
+        write(
+            &tmp,
+            "google-takeout/Location History/Records.json",
+            r#"{
             "locations": [
                 {"timestamp": "2024-01-15T10:00:00Z", "latitudeE7": 100000000, "longitudeE7": 200000000}
             ]
-        }"#);
+        }"#,
+        );
 
         assert_eq!(collect(&j, &id, &opts).unwrap(), 1);
         assert_eq!(collect(&j, &id, &opts).unwrap(), 0);
@@ -297,10 +312,14 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (j, id, opts) = setup(&tmp);
 
-        write(&tmp, "google-takeout/My Activity/Search/MyActivity.json", r#"[
+        write(
+            &tmp,
+            "google-takeout/My Activity/Search/MyActivity.json",
+            r#"[
             {"time": "2024-01-15T10:00:00Z", "title": "Searched for rust"},
             {"time": "2024-01-15T11:00:00Z", "title": "Searched for urchin"}
-        ]"#);
+        ]"#,
+        );
 
         assert_eq!(collect(&j, &id, &opts).unwrap(), 2);
         let events = j.read_all().unwrap();

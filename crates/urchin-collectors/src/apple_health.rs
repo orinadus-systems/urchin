@@ -36,7 +36,7 @@ impl AppleHealthOpts {
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join(".local/share/urchin/imports/apple-health");
         Self {
-            export_path:     base.join("export.xml"),
+            export_path: base.join("export.xml"),
             checkpoint_path: state_dir().join("apple-health.txt"),
         }
     }
@@ -76,8 +76,8 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &AppleHealthOpts) -
                             }
                             event.meta = Some(meta);
                             event.actor = Some(Actor {
-                                account:   Some(identity.account.clone()),
-                                device:    Some(identity.device.clone()),
+                                account: Some(identity.account.clone()),
+                                device: Some(identity.device.clone()),
                                 workspace: None,
                             });
                             journal.append(&event)?;
@@ -90,14 +90,15 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &AppleHealthOpts) -
                 } else if tag_bytes == b"Workout" {
                     if let Some((content, ts, meta)) = parse_workout(e) {
                         if ts > last_ts {
-                            let mut event = Event::new("apple-health", EventKind::HealthMetric, content);
+                            let mut event =
+                                Event::new("apple-health", EventKind::HealthMetric, content);
                             if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&ts) {
                                 event.timestamp = parsed.with_timezone(&chrono::Utc);
                             }
                             event.meta = Some(meta);
                             event.actor = Some(Actor {
-                                account:   Some(identity.account.clone()),
-                                device:    Some(identity.device.clone()),
+                                account: Some(identity.account.clone()),
+                                device: Some(identity.device.clone()),
                                 workspace: None,
                             });
                             journal.append(&event)?;
@@ -133,7 +134,7 @@ fn attr(e: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
 }
 
 fn normalize_ts(s: &str) -> String {
-    // Apple exports dates as "2024-01-15 10:00:00 -0800" — convert to RFC3339.
+    // Apple exports dates as "2024-01-15 10:00:00 -0800". Convert to RFC3339.
     let parts: Vec<&str> = s.splitn(3, ' ').collect();
     if parts.len() == 3 {
         let offset = parts[2];
@@ -162,18 +163,25 @@ fn parse_record(
         "HKQuantityTypeIdentifierStepCount" => {
             (EventKind::HealthMetric, format!("steps: {}", value_str))
         }
-        "HKQuantityTypeIdentifierHeartRate" => {
-            (EventKind::HealthMetric, format!("heart rate: {} bpm", value_str))
-        }
+        "HKQuantityTypeIdentifierHeartRate" => (
+            EventKind::HealthMetric,
+            format!("heart rate: {} bpm", value_str),
+        ),
         "HKCategoryTypeIdentifierSleepAnalysis" => {
             (EventKind::HealthMetric, format!("sleep: {}", value_str))
         }
-        "HKQuantityTypeIdentifierActiveEnergyBurned" => {
-            (EventKind::HealthMetric, format!("active calories: {} kcal", value_str))
-        }
-        "HKQuantityTypeIdentifierDistanceWalkingRunning" => {
-            (EventKind::HealthMetric, format!("distance: {} {}", value_str, unit_str.as_deref().unwrap_or("")))
-        }
+        "HKQuantityTypeIdentifierActiveEnergyBurned" => (
+            EventKind::HealthMetric,
+            format!("active calories: {} kcal", value_str),
+        ),
+        "HKQuantityTypeIdentifierDistanceWalkingRunning" => (
+            EventKind::HealthMetric,
+            format!(
+                "distance: {} {}",
+                value_str,
+                unit_str.as_deref().unwrap_or("")
+            ),
+        ),
         _ => return None,
     };
 
@@ -187,9 +195,7 @@ fn parse_record(
     Some((kind, content, end_date, meta))
 }
 
-fn parse_workout(
-    e: &quick_xml::events::BytesStart<'_>,
-) -> Option<(String, String, EventMeta)> {
+fn parse_workout(e: &quick_xml::events::BytesStart<'_>) -> Option<(String, String, EventMeta)> {
     let workout_type = attr(e, b"workoutActivityType")?;
     let end_date = attr(e, b"endDate").map(|s| normalize_ts(&s))?;
     let duration_str = attr(e, b"duration").unwrap_or_default();
@@ -227,9 +233,12 @@ mod tests {
 
     fn setup(tmp: &TempDir) -> (Journal, Identity, AppleHealthOpts) {
         let journal = Journal::new(tmp.path().join("journal.jsonl"));
-        let identity = Identity { account: "test".into(), device: "test".into() };
+        let identity = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         let opts = AppleHealthOpts {
-            export_path:     tmp.path().join("export.xml"),
+            export_path: tmp.path().join("export.xml"),
             checkpoint_path: tmp.path().join("ckpt.txt"),
         };
         (journal, identity, opts)

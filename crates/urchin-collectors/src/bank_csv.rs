@@ -110,8 +110,18 @@ fn ingest_file(
         }
         let record = result?;
 
-        let date_str = col.date.and_then(|c| record.get(c)).unwrap_or("").trim().to_string();
-        let amount_str = col.amount.and_then(|c| record.get(c)).unwrap_or("").trim().to_string();
+        let date_str = col
+            .date
+            .and_then(|c| record.get(c))
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let amount_str = col
+            .amount
+            .and_then(|c| record.get(c))
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let merchant = col
             .merchant
             .and_then(|c| record.get(c))
@@ -145,12 +155,16 @@ fn ingest_file(
         event.meta = Some(EventMeta {
             amount,
             currency: Some("USD".to_string()),
-            merchant: if merchant.is_empty() { None } else { Some(merchant) },
+            merchant: if merchant.is_empty() {
+                None
+            } else {
+                Some(merchant)
+            },
             ..Default::default()
         });
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: None,
         });
         journal.append(&event)?;
@@ -160,30 +174,49 @@ fn ingest_file(
 }
 
 struct Columns {
-    date:     Option<usize>,
-    amount:   Option<usize>,
+    date: Option<usize>,
+    amount: Option<usize>,
     merchant: Option<usize>,
 }
 
 fn detect_columns(headers: &csv::StringRecord) -> Columns {
-    let mut date     = None;
-    let mut amount   = None;
+    let mut date = None;
+    let mut amount = None;
     let mut merchant = None;
 
     for (i, h) in headers.iter().enumerate() {
         let h = h.trim().to_lowercase();
-        if date.is_none() && matches!(h.as_str(), "date" | "transaction date" | "posted date" | "trans date") {
+        if date.is_none()
+            && matches!(
+                h.as_str(),
+                "date" | "transaction date" | "posted date" | "trans date"
+            )
+        {
             date = Some(i);
         }
-        if amount.is_none() && matches!(h.as_str(), "amount" | "debit" | "credit" | "transaction amount") {
+        if amount.is_none()
+            && matches!(
+                h.as_str(),
+                "amount" | "debit" | "credit" | "transaction amount"
+            )
+        {
             amount = Some(i);
         }
-        if merchant.is_none() && matches!(h.as_str(), "description" | "merchant" | "payee" | "memo" | "name") {
+        if merchant.is_none()
+            && matches!(
+                h.as_str(),
+                "description" | "merchant" | "payee" | "memo" | "name"
+            )
+        {
             merchant = Some(i);
         }
     }
 
-    Columns { date, amount, merchant }
+    Columns {
+        date,
+        amount,
+        merchant,
+    }
 }
 
 fn parse_date(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -208,9 +241,12 @@ mod tests {
 
     fn setup(tmp: &TempDir) -> (Journal, Identity, BankCsvOpts) {
         let journal = Journal::new(tmp.path().join("journal.jsonl"));
-        let identity = Identity { account: "test".into(), device: "test".into() };
+        let identity = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         let opts = BankCsvOpts {
-            import_dir:      tmp.path().join("bank"),
+            import_dir: tmp.path().join("bank"),
             checkpoint_path: tmp.path().join("ckpt.json"),
         };
         (journal, identity, opts)
@@ -233,7 +269,8 @@ mod tests {
             "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n\
              01/15/2024,01/16/2024,BLUE BOTTLE COFFEE,Food,Sale,-4.50,\n\
              01/16/2024,01/17/2024,WHOLE FOODS,Groceries,Sale,-62.40,\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let n = collect(&j, &id, &opts).unwrap();
         assert_eq!(n, 2);
@@ -255,7 +292,8 @@ mod tests {
             "Transaction Date,Description,Amount\n\
              01/15/2024,Coffee,-4.50\n\
              01/16/2024,Lunch,-12.00\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(collect(&j, &id, &opts).unwrap(), 2);
         assert_eq!(collect(&j, &id, &opts).unwrap(), 0);
@@ -270,7 +308,8 @@ mod tests {
             opts.import_dir.join("generic.csv"),
             "Date,Payee,Amount\n\
              2024-01-15,Amazon,39.99\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(collect(&j, &id, &opts).unwrap(), 1);
         let events = j.read_all().unwrap();

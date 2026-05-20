@@ -13,7 +13,9 @@ pub struct EphemeralMode {
 
 impl EphemeralMode {
     pub fn new(data_dir: &Path) -> Self {
-        Self { flag_path: data_dir.join("ephemeral.lock") }
+        Self {
+            flag_path: data_dir.join("ephemeral.lock"),
+        }
     }
 
     /// Returns true if the flag file exists — ephemeral mode is on.

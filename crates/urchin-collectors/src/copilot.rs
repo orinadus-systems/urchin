@@ -37,7 +37,7 @@ impl CopilotOpts {
     pub fn defaults() -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
         Self {
-            history_path:    home.join(".copilot").join("command-history-state.json"),
+            history_path: home.join(".copilot").join("command-history-state.json"),
             checkpoint_path: state_dir().join("copilot.checkpoint"),
         }
     }
@@ -72,8 +72,8 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &CopilotOpts) -> Re
 
         let mut event = Event::new("copilot", EventKind::Conversation, trimmed.to_string());
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: None,
         });
         // No per-entry timestamp in source; use current time.
@@ -101,7 +101,11 @@ fn load_seen(path: &PathBuf) -> HashSet<String> {
         .collect()
 }
 
-fn save_seen(path: &PathBuf, mut existing: HashSet<String>, new_entries: Vec<String>) -> Result<()> {
+fn save_seen(
+    path: &PathBuf,
+    mut existing: HashSet<String>,
+    new_entries: Vec<String>,
+) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -131,11 +135,14 @@ mod tests {
     fn fixture() -> (TempDir, CopilotOpts, Journal, Identity) {
         let dir = tempfile::tempdir().unwrap();
         let opts = CopilotOpts {
-            history_path:    dir.path().join("command-history-state.json"),
+            history_path: dir.path().join("command-history-state.json"),
             checkpoint_path: dir.path().join("copilot.checkpoint"),
         };
         let journal = Journal::new(dir.path().join("events.jsonl"));
-        let identity = Identity { account: "test".into(), device: "test".into() };
+        let identity = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         (dir, opts, journal, identity)
     }
 

@@ -1,12 +1,12 @@
 //! Append-only journal. Events are written once, never mutated.
 //! The journal file at ~/.local/share/urchin/journal/events.jsonl is the source of truth.
 
+use crate::event::Event;
+use crate::index::{build_index_row, Index, IndexRow};
+use anyhow::Result;
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use anyhow::Result;
-use crate::event::Event;
-use crate::index::{build_index_row, Index, IndexRow};
 
 enum JournalOp {
     Append(String),
@@ -14,8 +14,8 @@ enum JournalOp {
 }
 
 pub struct Journal {
-    path:  PathBuf,
-    tx:    tokio::sync::mpsc::UnboundedSender<JournalOp>,
+    path: PathBuf,
+    tx: tokio::sync::mpsc::UnboundedSender<JournalOp>,
     index: Option<Arc<Index>>,
 }
 
@@ -38,11 +38,11 @@ fn open_writer(path: &PathBuf) -> BufWriter<std::fs::File> {
 }
 
 fn spawn_writer(
-    path:      PathBuf,
+    path: PathBuf,
     index_opt: Option<Arc<Index>>,
 ) -> tokio::sync::mpsc::UnboundedSender<JournalOp> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<JournalOp>();
-    let writer_path  = path;
+    let writer_path = path;
     std::thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
             .build()
@@ -52,8 +52,9 @@ fn spawn_writer(
                 // Track write position for the index byte_offset column.
                 // Initialise from the current file size so we pick up where
                 // a previous run left off; 0 if the file does not exist yet.
-                let mut byte_offset: u64 =
-                    std::fs::metadata(&writer_path).map(|m| m.len()).unwrap_or(0);
+                let mut byte_offset: u64 = std::fs::metadata(&writer_path)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
                 let mut pending_rows: Vec<IndexRow> = Vec::new();
 
                 while let Some(op) = rx.recv().await {
@@ -101,7 +102,11 @@ impl Journal {
     /// Use this in tests and lightweight one-shot CLI commands.
     pub fn new(path: PathBuf) -> Self {
         let tx = spawn_writer(path.clone(), None);
-        Self { path, tx, index: None }
+        Self {
+            path,
+            tx,
+            index: None,
+        }
     }
 
     /// Create a journal backed by a SQLite projection index.
@@ -112,7 +117,11 @@ impl Journal {
         let index = Arc::new(Index::open(&index_path)?);
         index.ensure_schema()?;
         let tx = spawn_writer(path.clone(), Some(Arc::clone(&index)));
-        Ok(Self { path, tx, index: Some(index) })
+        Ok(Self {
+            path,
+            tx,
+            index: Some(index),
+        })
     }
 
     pub fn default_path() -> PathBuf {
@@ -240,13 +249,20 @@ impl Journal {
 
     /// Recent events, newest-first. Uses the SQLite index when available,
     /// otherwise falls back to a full JSONL scan.
-    pub fn query_recent(&self, hours: f64, source: Option<&str>, limit: usize) -> Result<Vec<Event>> {
+    pub fn query_recent(
+        &self,
+        hours: f64,
+        source: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Event>> {
         if let Some(ref idx) = self.index {
             idx.query_recent(hours, source, limit)
         } else {
             let events = self.read_all()?;
             Ok(crate::query::recent(&events, hours, source, limit)
-                .into_iter().cloned().collect())
+                .into_iter()
+                .cloned()
+                .collect())
         }
     }
 
@@ -257,7 +273,9 @@ impl Journal {
         } else {
             let events = self.read_all()?;
             Ok(crate::query::search_content(&events, q, hours, limit)
-                .into_iter().cloned().collect())
+                .into_iter()
+                .cloned()
+                .collect())
         }
     }
 
@@ -267,8 +285,12 @@ impl Journal {
             idx.query_project(project, hours, limit)
         } else {
             let events = self.read_all()?;
-            Ok(crate::query::project_context(&events, project, hours, limit)
-                .into_iter().cloned().collect())
+            Ok(
+                crate::query::project_context(&events, project, hours, limit)
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            )
         }
     }
 
@@ -279,27 +301,41 @@ impl Journal {
         } else {
             let events = self.read_all()?;
             Ok(crate::query::workspace_context(&events, path, hours, limit)
-                .into_iter().cloned().collect())
+                .into_iter()
+                .cloned()
+                .collect())
         }
     }
 
     /// Fast stats: raw byte scan for line count, tail seek for last event.
     pub fn stats(&self) -> Result<JournalStats> {
         if !self.path.exists() {
-            return Ok(JournalStats { event_count: 0, file_size_bytes: 0, last_event: None });
+            return Ok(JournalStats {
+                event_count: 0,
+                file_size_bytes: 0,
+                last_event: None,
+            });
         }
         let file_size_bytes = std::fs::metadata(&self.path)?.len();
         if file_size_bytes == 0 {
-            return Ok(JournalStats { event_count: 0, file_size_bytes: 0, last_event: None });
+            return Ok(JournalStats {
+                event_count: 0,
+                file_size_bytes: 0,
+                last_event: None,
+            });
         }
         let mut file = std::fs::File::open(&self.path)?;
         let mut event_count: usize = 0;
         let mut chunk = vec![0u8; 65_536];
         loop {
             let n = file.read(&mut chunk)?;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             for &b in &chunk[..n] {
-                if b == b'\n' { event_count += 1; }
+                if b == b'\n' {
+                    event_count += 1;
+                }
             }
         }
         let tail_start = file_size_bytes.saturating_sub(4096);
@@ -311,7 +347,11 @@ impl Journal {
             .rev()
             .find(|l| !l.trim().is_empty())
             .and_then(|l| serde_json::from_str(l).ok());
-        Ok(JournalStats { event_count, file_size_bytes, last_event })
+        Ok(JournalStats {
+            event_count,
+            file_size_bytes,
+            last_event,
+        })
     }
 }
 
@@ -378,7 +418,13 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp.path().to_path_buf());
         for i in 0..10 {
-            journal.append(&Event::new("cli", EventKind::Conversation, format!("event {}", i))).unwrap();
+            journal
+                .append(&Event::new(
+                    "cli",
+                    EventKind::Conversation,
+                    format!("event {}", i),
+                ))
+                .unwrap();
         }
         journal.flush().unwrap();
         let tail = journal.read_tail(3).unwrap();
@@ -393,7 +439,13 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp.path().to_path_buf());
         for i in 0..3 {
-            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+            journal
+                .append(&Event::new(
+                    "cli",
+                    EventKind::Conversation,
+                    format!("e{}", i),
+                ))
+                .unwrap();
         }
         journal.flush().unwrap();
         let tail = journal.read_tail(10).unwrap();
@@ -405,7 +457,13 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp.path().to_path_buf());
         for i in 0..10 {
-            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+            journal
+                .append(&Event::new(
+                    "cli",
+                    EventKind::Conversation,
+                    format!("e{}", i),
+                ))
+                .unwrap();
         }
         journal.flush().unwrap();
         let window = journal.read_window(0, 3).unwrap();
@@ -420,7 +478,13 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp.path().to_path_buf());
         for i in 0..10 {
-            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+            journal
+                .append(&Event::new(
+                    "cli",
+                    EventKind::Conversation,
+                    format!("e{}", i),
+                ))
+                .unwrap();
         }
         journal.flush().unwrap();
         let window = journal.read_window(3, 3).unwrap();
@@ -435,7 +499,13 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp.path().to_path_buf());
         for i in 0..3 {
-            journal.append(&Event::new("cli", EventKind::Conversation, format!("e{}", i))).unwrap();
+            journal
+                .append(&Event::new(
+                    "cli",
+                    EventKind::Conversation,
+                    format!("e{}", i),
+                ))
+                .unwrap();
         }
         journal.flush().unwrap();
         let window = journal.read_window(10, 5).unwrap();
@@ -444,12 +514,14 @@ mod tests {
 
     #[test]
     fn journal_with_index_query_recent() {
-        let dir          = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let journal_path = dir.path().join("events.jsonl");
-        let index_path   = dir.path().join("index.db");
-        let journal      = Journal::new_with_index(journal_path, index_path).unwrap();
+        let index_path = dir.path().join("index.db");
+        let journal = Journal::new_with_index(journal_path, index_path).unwrap();
 
-        journal.append(&Event::new("cli", EventKind::Conversation, "hello index")).unwrap();
+        journal
+            .append(&Event::new("cli", EventKind::Conversation, "hello index"))
+            .unwrap();
         journal.flush().unwrap();
 
         let events = journal.query_recent(1.0, None, 10).unwrap();
@@ -459,13 +531,25 @@ mod tests {
 
     #[test]
     fn journal_with_index_query_search() {
-        let dir          = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let journal_path = dir.path().join("events.jsonl");
-        let index_path   = dir.path().join("index.db");
-        let journal      = Journal::new_with_index(journal_path, index_path).unwrap();
+        let index_path = dir.path().join("index.db");
+        let journal = Journal::new_with_index(journal_path, index_path).unwrap();
 
-        journal.append(&Event::new("cli", EventKind::Conversation, "needle in a haystack")).unwrap();
-        journal.append(&Event::new("cli", EventKind::Conversation, "something unrelated")).unwrap();
+        journal
+            .append(&Event::new(
+                "cli",
+                EventKind::Conversation,
+                "needle in a haystack",
+            ))
+            .unwrap();
+        journal
+            .append(&Event::new(
+                "cli",
+                EventKind::Conversation,
+                "something unrelated",
+            ))
+            .unwrap();
         journal.flush().unwrap();
 
         let hits = journal.query_search("needle", 1.0, 10).unwrap();
@@ -475,9 +559,11 @@ mod tests {
 
     #[test]
     fn journal_without_index_falls_back() {
-        let tmp     = NamedTempFile::new().unwrap();
+        let tmp = NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp.path().to_path_buf());
-        journal.append(&Event::new("cli", EventKind::Conversation, "fallback test")).unwrap();
+        journal
+            .append(&Event::new("cli", EventKind::Conversation, "fallback test"))
+            .unwrap();
         journal.flush().unwrap();
 
         // query_recent should fall back to JSONL scan when no index is present.
@@ -491,20 +577,24 @@ mod tests {
         use std::sync::Arc;
         let tmp = NamedTempFile::new().unwrap();
         let journal = Arc::new(Journal::new(tmp.path().to_path_buf()));
-        let handles: Vec<_> = (0..10).map(|i| {
-            let j = journal.clone();
-            std::thread::spawn(move || {
-                for k in 0..1_000 {
-                    j.append(&Event::new(
-                        "test",
-                        EventKind::Command,
-                        format!("thread {} event {}", i, k),
-                    ))
-                    .unwrap();
-                }
+        let handles: Vec<_> = (0..10)
+            .map(|i| {
+                let j = journal.clone();
+                std::thread::spawn(move || {
+                    for k in 0..1_000 {
+                        j.append(&Event::new(
+                            "test",
+                            EventKind::Command,
+                            format!("thread {} event {}", i, k),
+                        ))
+                        .unwrap();
+                    }
+                })
             })
-        }).collect();
-        for h in handles { h.join().unwrap(); }
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
         journal.flush().unwrap();
         let events = journal.read_all().unwrap();
         assert_eq!(events.len(), 10_000);

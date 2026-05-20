@@ -1,8 +1,11 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "urchin", about = "Local-first memory sync substrate for AI tools")]
+#[command(
+    name = "urchin",
+    about = "Local-first memory sync substrate for AI tools"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -83,10 +86,7 @@ enum Commands {
 #[derive(Subcommand)]
 enum ConfigAction {
     /// Set a configuration key (e.g. cloud_url, cloud_token)
-    Set {
-        key: String,
-        value: String,
-    },
+    Set { key: String, value: String },
     /// Print current configuration
     Show,
 }
@@ -129,23 +129,31 @@ enum CollectKind {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
-        .with_env_filter(
-            std::env::var("URCHIN_LOG").unwrap_or_else(|_| "urchin=info".into()),
-        )
+        .with_env_filter(std::env::var("URCHIN_LOG").unwrap_or_else(|_| "urchin=info".into()))
         .init();
 
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve  => serve().await,
-        Commands::Mcp    => mcp().await,
+        Commands::Serve => serve().await,
+        Commands::Mcp => mcp().await,
         Commands::Doctor => doctor().await,
-        Commands::Ingest { content, source, workspace, title, tags, kind } => {
-            ingest(content, source, workspace, title, tags, kind)
-        }
+        Commands::Ingest {
+            content,
+            source,
+            workspace,
+            title,
+            tags,
+            kind,
+        } => ingest(content, source, workspace, title, tags, kind),
         Commands::Collect { which } => collect(which),
-        Commands::Recent { n, source, hours }  => recent(n, source, hours),
-        Commands::Query  { text, source, limit, hours } => query(text, source, limit, hours),
+        Commands::Recent { n, source, hours } => recent(n, source, hours),
+        Commands::Query {
+            text,
+            source,
+            limit,
+            hours,
+        } => query(text, source, limit, hours),
         Commands::Config { action } => config_cmd(action),
         Commands::Sync => sync().await,
         Commands::Pull { limit } => pull(limit).await,
@@ -162,9 +170,9 @@ async fn serve() -> Result<()> {
     use urchin_collectors::CollectorRegistry;
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
-    let cfg      = Config::load();
+    let cfg = Config::load();
     let identity = Arc::new(Identity::resolve());
-    let jp       = cfg.journal_path.clone();
+    let jp = cfg.journal_path.clone();
 
     // Auto-rebuild SQLite index if it exists but is empty (stale or freshly created)
     {
@@ -185,8 +193,8 @@ async fn serve() -> Result<()> {
     }
 
     // Cloud shuttle config — cloned before cfg is borrowed by intake server
-    let cloud_url          = cfg.cloud_url.clone();
-    let cloud_token        = cfg.cloud_token.clone();
+    let cloud_url = cfg.cloud_url.clone();
+    let cloud_token = cfg.cloud_token.clone();
     let shuttle_offset_path = shuttle_offset_path(&cfg);
 
     // ── Shutdown plumbing ────────────────────────────────────────────────────
@@ -230,17 +238,25 @@ async fn serve() -> Result<()> {
                     .map(PathBuf::from)
                     .collect();
 
-                CollectorRegistry::with_defaults(&repos).run_all(&journal, &id)
+                CollectorRegistry::with_defaults(&repos)
+                    .run_all(&journal, &id)
                     .into_iter()
                     .map(|r| match r.count {
                         Ok(n) => {
-                            if n > 0 { tracing::info!("[DAEMON] {}: {} events", r.name, n); }
+                            if n > 0 {
+                                tracing::info!("[DAEMON] {}: {} events", r.name, n);
+                            }
                             n
                         }
-                        Err(e) => { tracing::warn!("[DAEMON] {}: {}", r.name, e); 0 }
+                        Err(e) => {
+                            tracing::warn!("[DAEMON] {}: {}", r.name, e);
+                            0
+                        }
                     })
                     .sum()
-            }).await.unwrap_or(0);
+            })
+            .await
+            .unwrap_or(0);
 
             println!("[DAEMON] Tick complete: {} total events ingested.", total);
 
@@ -251,9 +267,14 @@ async fn serve() -> Result<()> {
                     cloud_token.as_deref(),
                     &tick_jp,
                     &shuttle_offset_path,
-                ).await {
+                )
+                .await
+                {
                     Ok((pushed, total)) if total > 0 => {
-                        println!("[DAEMON] Shuttled {}/{} events to Cloud Hub.", pushed, total);
+                        println!(
+                            "[DAEMON] Shuttled {}/{} events to Cloud Hub.",
+                            pushed, total
+                        );
                     }
                     Ok(_) => {}
                     Err(e) => tracing::warn!("[DAEMON] shuttle: {}", e),
@@ -266,10 +287,10 @@ async fn serve() -> Result<()> {
 
     // ── Intake server with graceful shutdown ─────────────────────────────────
     let mut intake_stop = stop_rx;
-    urchin_intake::server::serve_with_shutdown(
-        &cfg,
-        async move { intake_stop.changed().await.ok(); },
-    ).await
+    urchin_intake::server::serve_with_shutdown(&cfg, async move {
+        intake_stop.changed().await.ok();
+    })
+    .await
 }
 
 fn read_offset(path: &std::path::Path) -> u64 {
@@ -328,7 +349,11 @@ async fn doctor() -> Result<()> {
         println!("    events:   {}", stats.event_count);
         println!("    size:     {} KB", stats.file_size_bytes / 1024);
         if let Some(last) = stats.last_event {
-            println!("    last:     {} ({})", last.timestamp.format("%Y-%m-%dT%H:%M:%SZ"), last.source);
+            println!(
+                "    last:     {} ({})",
+                last.timestamp.format("%Y-%m-%dT%H:%M:%SZ"),
+                last.source
+            );
         }
     }
 
@@ -355,26 +380,22 @@ fn ingest(
     let identity = Identity::resolve();
 
     let event_kind = match kind.as_str() {
-        "agent"          => EventKind::Agent,
-        "command"        => EventKind::Command,
-        "commit"         => EventKind::Commit,
-        "file"           => EventKind::File,
-        "decision"       => EventKind::Decision,
-        "purchase"       => EventKind::Purchase,
-        "location"       => EventKind::Location,
-        "health_metric"  => EventKind::HealthMetric,
+        "agent" => EventKind::Agent,
+        "command" => EventKind::Command,
+        "commit" => EventKind::Commit,
+        "file" => EventKind::File,
+        "decision" => EventKind::Decision,
+        "purchase" => EventKind::Purchase,
+        "location" => EventKind::Location,
+        "health_metric" => EventKind::HealthMetric,
         "calendar_event" => EventKind::CalendarEvent,
-        "search_query"   => EventKind::SearchQuery,
-        "watch_history"  => EventKind::WatchHistory,
-        "conversation"   => EventKind::Conversation,
-        other            => EventKind::Other(other.to_string()),
+        "search_query" => EventKind::SearchQuery,
+        "watch_history" => EventKind::WatchHistory,
+        "conversation" => EventKind::Conversation,
+        other => EventKind::Other(other.to_string()),
     };
 
-    let mut event = Event::new(
-        source.unwrap_or_else(|| "cli".into()),
-        event_kind,
-        content,
-    );
+    let mut event = Event::new(source.unwrap_or_else(|| "cli".into()), event_kind, content);
     event.workspace = workspace;
     event.title = title;
     event.tags = tags;
@@ -393,16 +414,15 @@ fn collect(which: CollectKind) -> Result<()> {
     use std::sync::Arc;
     use urchin_collectors::{
         apple_health as health_col, bank_csv as bank_col, calendar as cal_col,
-        claude as claude_col, codex as codex_col, copilot as copilot_col,
-        gemini as gemini_col, git as git_col, google_takeout as takeout_col,
-        local_model as lm_col, opencode as opencode_col, shell as shell_col,
-        CollectorRegistry,
+        claude as claude_col, codex as codex_col, copilot as copilot_col, gemini as gemini_col,
+        git as git_col, google_takeout as takeout_col, local_model as lm_col,
+        opencode as opencode_col, shell as shell_col, CollectorRegistry,
     };
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
-    let cfg      = Config::load();
+    let cfg = Config::load();
     let identity = Arc::new(Identity::resolve());
-    let journal  = Arc::new(Journal::new(cfg.journal_path.clone()));
+    let journal = Arc::new(Journal::new(cfg.journal_path.clone()));
 
     match which {
         CollectKind::Shell => {
@@ -433,7 +453,8 @@ fn collect(which: CollectKind) -> Result<()> {
             println!("claude: {} new events", n);
         }
         CollectKind::Copilot => {
-            let n = copilot_col::collect(&journal, &identity, &copilot_col::CopilotOpts::defaults())?;
+            let n =
+                copilot_col::collect(&journal, &identity, &copilot_col::CopilotOpts::defaults())?;
             println!("copilot: {} new events", n);
         }
         CollectKind::Gemini => {
@@ -445,7 +466,11 @@ fn collect(which: CollectKind) -> Result<()> {
             println!("codex: {} new events", n);
         }
         CollectKind::Opencode => {
-            let n = opencode_col::collect(&journal, &identity, &opencode_col::OpenCodeOpts::defaults())?;
+            let n = opencode_col::collect(
+                &journal,
+                &identity,
+                &opencode_col::OpenCodeOpts::defaults(),
+            )?;
             println!("opencode: {} new events", n);
         }
         CollectKind::LocalModel => {
@@ -453,11 +478,19 @@ fn collect(which: CollectKind) -> Result<()> {
             println!("local-model: {} new events", n);
         }
         CollectKind::GoogleTakeout => {
-            let n = takeout_col::collect(&journal, &identity, &takeout_col::GoogleTakeoutOpts::defaults())?;
+            let n = takeout_col::collect(
+                &journal,
+                &identity,
+                &takeout_col::GoogleTakeoutOpts::defaults(),
+            )?;
             println!("google-takeout: {} new events", n);
         }
         CollectKind::AppleHealth => {
-            let n = health_col::collect(&journal, &identity, &health_col::AppleHealthOpts::defaults())?;
+            let n = health_col::collect(
+                &journal,
+                &identity,
+                &health_col::AppleHealthOpts::defaults(),
+            )?;
             println!("apple-health: {} new events", n);
         }
         CollectKind::BankCsv => {
@@ -472,7 +505,7 @@ fn collect(which: CollectKind) -> Result<()> {
             let repos = resolve_repos(vec![]);
             for r in CollectorRegistry::with_defaults(&repos).run_all(&journal, &identity) {
                 match r.count {
-                    Ok(n)  => println!("{}: {} new events", r.name, n),
+                    Ok(n) => println!("{}: {} new events", r.name, n),
                     Err(e) => eprintln!("{} skipped: {}", r.name, e),
                 }
             }
@@ -498,7 +531,8 @@ async fn run_shuttle(
     let (events, new_offset) = tokio::task::spawn_blocking(move || {
         let offset = read_offset(&op);
         Journal::new(jp).read_from_byte_offset(offset)
-    }).await??;
+    })
+    .await??;
 
     if events.is_empty() {
         return Ok((0, 0));
@@ -559,14 +593,18 @@ async fn sync() -> Result<()> {
         cfg.cloud_token.as_deref(),
         &cfg.journal_path,
         &offset_path,
-    ).await?;
+    )
+    .await?;
 
     if total == 0 {
         println!("Already up to date. No events to sync.");
     } else if pushed == total {
         println!("Synced {} events.", pushed);
     } else {
-        println!("Partial: {}/{} events pushed. Checkpoint not advanced — will retry on next sync.", pushed, total);
+        println!(
+            "Partial: {}/{} events pushed. Checkpoint not advanced — will retry on next sync.",
+            pushed, total
+        );
         std::process::exit(1);
     }
 
@@ -574,8 +612,8 @@ async fn sync() -> Result<()> {
 }
 
 async fn pull(page_limit: usize) -> Result<()> {
-    use urchin_core::{config::Config, journal::Journal};
     use std::collections::HashSet;
+    use urchin_core::{config::Config, journal::Journal};
 
     let cfg = Config::load();
 
@@ -591,12 +629,14 @@ async fn pull(page_limit: usize) -> Result<()> {
     }
 
     // Load cursor checkpoint (last pulled timestamp)
-    let cursor_path = cfg.cache_path
+    let cursor_path = cfg
+        .cache_path
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."))
         .join("cloud-pull.cursor");
 
-    let start_cursor: Option<String> = std::fs::read_to_string(&cursor_path).ok()
+    let start_cursor: Option<String> = std::fs::read_to_string(&cursor_path)
+        .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
@@ -605,13 +645,15 @@ async fn pull(page_limit: usize) -> Result<()> {
     let existing_ids: HashSet<String> = tokio::task::spawn_blocking({
         let j = journal.path().clone();
         move || -> HashSet<String> {
-            Journal::new(j).read_all()
+            Journal::new(j)
+                .read_all()
                 .unwrap_or_default()
                 .into_iter()
                 .map(|e| e.id.to_string())
                 .collect()
         }
-    }).await?;
+    })
+    .await?;
 
     let mut cursor = start_cursor;
     let mut total_pulled = 0usize;
@@ -668,9 +710,15 @@ fn config_cmd(action: ConfigAction) -> Result<()> {
             println!("journal_path:  {}", cfg.journal_path.display());
             println!("cache_path:    {}", cfg.cache_path.display());
             println!("intake_port:   {}", cfg.intake_port);
-            println!("remote_host:   {}", cfg.remote_host.as_deref().unwrap_or("-"));
+            println!(
+                "remote_host:   {}",
+                cfg.remote_host.as_deref().unwrap_or("-")
+            );
             println!("cloud_url:     {}", cfg.cloud_url.as_deref().unwrap_or("-"));
-            println!("cloud_token:   {}", cfg.cloud_token.as_deref().map(|_| "<set>").unwrap_or("-"));
+            println!(
+                "cloud_token:   {}",
+                cfg.cloud_token.as_deref().map(|_| "<set>").unwrap_or("-")
+            );
         }
     }
     Ok(())
@@ -686,9 +734,9 @@ fn open_journal(journal_path: std::path::PathBuf) -> urchin_core::journal::Journ
 fn recent(n: usize, source: Option<String>, hours: f64) -> Result<()> {
     use urchin_core::config::Config;
 
-    let cfg     = Config::load();
+    let cfg = Config::load();
     let journal = open_journal(cfg.journal_path);
-    let events  = journal.query_recent(hours, source.as_deref(), n)?;
+    let events = journal.query_recent(hours, source.as_deref(), n)?;
 
     if events.is_empty() {
         println!("(no events in window)");
@@ -704,7 +752,7 @@ fn recent(n: usize, source: Option<String>, hours: f64) -> Result<()> {
 fn query(text: String, source: Option<String>, limit: usize, hours: f64) -> Result<()> {
     use urchin_core::config::Config;
 
-    let cfg     = Config::load();
+    let cfg = Config::load();
     let journal = open_journal(cfg.journal_path);
     let mut events = journal.query_search(&text, hours, limit)?;
 
@@ -727,9 +775,9 @@ fn query(text: String, source: Option<String>, limit: usize, hours: f64) -> Resu
 fn rebuild_index() -> Result<()> {
     use urchin_core::{config::Config, index::Index};
 
-    let cfg        = Config::load();
+    let cfg = Config::load();
     let index_path = cfg.journal_path.with_file_name("index.db");
-    let index      = Index::open(&index_path)?;
+    let index = Index::open(&index_path)?;
     index.ensure_schema()?;
     let n = index.rebuild_from_journal(&cfg.journal_path)?;
     println!("rebuilt: {} events indexed", n);

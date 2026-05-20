@@ -29,7 +29,7 @@ use crate::state::state_dir;
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 pub struct OpenCodeOpts {
-    pub db_path:         PathBuf,
+    pub db_path: PathBuf,
     pub checkpoint_path: PathBuf,
 }
 
@@ -37,7 +37,11 @@ impl OpenCodeOpts {
     pub fn defaults() -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
         Self {
-            db_path:         home.join(".local").join("share").join("opencode").join("opencode.db"),
+            db_path: home
+                .join(".local")
+                .join("share")
+                .join("opencode")
+                .join("opencode.db"),
             checkpoint_path: state_dir().join("opencode.json"),
         }
     }
@@ -142,11 +146,11 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &OpenCodeOpts) -> R
 
     let rows = stmt.query_map([ckpt.last_ts_ms], |row| {
         Ok((
-            row.get::<_, String>(0)?,   // id
-            row.get::<_, i64>(1)?,       // time_created (ms)
-            row.get::<_, String>(2)?,    // data JSON
-            row.get::<_, String>(3)?,    // directory
-            row.get::<_, String>(4)?,    // title
+            row.get::<_, String>(0)?, // id
+            row.get::<_, i64>(1)?,    // time_created (ms)
+            row.get::<_, String>(2)?, // data JSON
+            row.get::<_, String>(3)?, // directory
+            row.get::<_, String>(4)?, // title
         ))
     })?;
 
@@ -154,9 +158,13 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &OpenCodeOpts) -> R
         let (id, ts_ms, data_str, directory, title) = row?;
 
         let data: Value = match serde_json::from_str(&data_str) {
-            Ok(v)  => v,
+            Ok(v) => v,
             Err(e) => {
-                tracing::warn!("opencode collector: skipping malformed message {}: {}", id, e);
+                tracing::warn!(
+                    "opencode collector: skipping malformed message {}: {}",
+                    id,
+                    e
+                );
                 continue;
             }
         };
@@ -168,7 +176,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &OpenCodeOpts) -> R
 
         let content = match extract_text(&data) {
             Some(c) => c,
-            None    => continue,
+            None => continue,
         };
 
         let ts: DateTime<Utc> = Utc
@@ -178,13 +186,25 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &OpenCodeOpts) -> R
 
         let mut event = Event::new("opencode", EventKind::Conversation, content);
         event.timestamp = ts;
-        event.workspace = if directory.is_empty() { None } else { Some(directory.clone()) };
-        event.title     = if title.is_empty() { None } else { Some(title.clone()) };
-        event.tags      = vec!["auto-collected".to_string(), "opencode".to_string()];
+        event.workspace = if directory.is_empty() {
+            None
+        } else {
+            Some(directory.clone())
+        };
+        event.title = if title.is_empty() {
+            None
+        } else {
+            Some(title.clone())
+        };
+        event.tags = vec!["auto-collected".to_string(), "opencode".to_string()];
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
-            workspace: if directory.is_empty() { None } else { Some(directory) },
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
+            workspace: if directory.is_empty() {
+                None
+            } else {
+                Some(directory)
+            },
         });
 
         journal.append(&event)?;
@@ -247,7 +267,10 @@ mod tests {
 
     fn dummy_journal(tmp: &TempDir) -> (Journal, Identity) {
         let j = Journal::new(tmp.path().join("journal.jsonl"));
-        let id = Identity { account: "test".into(), device: "test".into() };
+        let id = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         (j, id)
     }
 
@@ -256,14 +279,15 @@ mod tests {
             "INSERT INTO session (id, directory, title, time_created, time_updated)
              VALUES (?1, ?2, 'test session', 1000, 1000)",
             rusqlite::params![id, directory],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     #[test]
     fn no_db_returns_zero() {
         let tmp = TempDir::new().unwrap();
         let opts = OpenCodeOpts {
-            db_path:         tmp.path().join("missing.db"),
+            db_path: tmp.path().join("missing.db"),
             checkpoint_path: tmp.path().join("ckpt.json"),
         };
         let (j, id) = dummy_journal(&tmp);
@@ -273,7 +297,7 @@ mod tests {
     #[test]
     fn empty_db_returns_zero() {
         let tmp = TempDir::new().unwrap();
-        let db  = make_db(tmp.path());
+        let db = make_db(tmp.path());
         let opts = make_opts(&tmp, db);
         let (j, id) = dummy_journal(&tmp);
         assert_eq!(collect(&j, &id, &opts).unwrap(), 0);
@@ -281,8 +305,8 @@ mod tests {
 
     #[test]
     fn collects_user_messages_parts_format() {
-        let tmp  = TempDir::new().unwrap();
-        let db   = make_db(tmp.path());
+        let tmp = TempDir::new().unwrap();
+        let db = make_db(tmp.path());
         let conn = rusqlite::Connection::open(&db).unwrap();
         insert_session(&conn, "s1", "/home/sam/project");
         conn.execute(
@@ -302,8 +326,8 @@ mod tests {
 
     #[test]
     fn collects_user_messages_content_string_format() {
-        let tmp  = TempDir::new().unwrap();
-        let db   = make_db(tmp.path());
+        let tmp = TempDir::new().unwrap();
+        let db = make_db(tmp.path());
         let conn = rusqlite::Connection::open(&db).unwrap();
         insert_session(&conn, "s2", "/home/sam/project");
         conn.execute(
@@ -318,15 +342,16 @@ mod tests {
 
     #[test]
     fn watermark_prevents_reprocessing() {
-        let tmp  = TempDir::new().unwrap();
-        let db   = make_db(tmp.path());
+        let tmp = TempDir::new().unwrap();
+        let db = make_db(tmp.path());
         let conn = rusqlite::Connection::open(&db).unwrap();
         insert_session(&conn, "s3", "/home/sam/project");
         conn.execute(
             "INSERT INTO message (id, session_id, time_created, data)
              VALUES ('m4', 's3', 1700000004000, '{\"role\":\"user\",\"content\":\"first run\"}')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         let opts = make_opts(&tmp, db.clone());
         let (j, id) = dummy_journal(&tmp);
         assert_eq!(collect(&j, &id, &opts).unwrap(), 1);
@@ -336,15 +361,16 @@ mod tests {
 
     #[test]
     fn skips_non_user_roles() {
-        let tmp  = TempDir::new().unwrap();
-        let db   = make_db(tmp.path());
+        let tmp = TempDir::new().unwrap();
+        let db = make_db(tmp.path());
         let conn = rusqlite::Connection::open(&db).unwrap();
         insert_session(&conn, "s4", "/home/sam");
         conn.execute(
             "INSERT INTO message (id, session_id, time_created, data)
              VALUES ('m5', 's4', 1700000005000, '{\"role\":\"tool\",\"content\":\"tool result\"}')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO message (id, session_id, time_created, data)
              VALUES ('m6', 's4', 1700000006000, '{\"role\":\"user\",\"content\":\"valid user prompt\"}')",

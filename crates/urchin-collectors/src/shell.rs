@@ -44,7 +44,11 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &ShellOpts) -> Resu
     let checkpoint = read_checkpoint(&opts.checkpoint_path);
 
     // If checkpoint is past EOF, the file shrank — start over.
-    let start = if checkpoint > file_size { 0 } else { checkpoint };
+    let start = if checkpoint > file_size {
+        0
+    } else {
+        checkpoint
+    };
 
     let mut file = File::open(&opts.history_path)?;
     file.seek(SeekFrom::Start(start))?;
@@ -59,8 +63,8 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &ShellOpts) -> Resu
 
         let mut event = Event::new("shell", EventKind::Command, cleaned);
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: None,
         });
         journal.append(&event)?;
@@ -110,11 +114,14 @@ mod tests {
     fn fixture() -> (TempDir, ShellOpts, Journal, Identity) {
         let dir = tempfile::tempdir().unwrap();
         let opts = ShellOpts {
-            history_path:    dir.path().join("bash_history"),
+            history_path: dir.path().join("bash_history"),
             checkpoint_path: dir.path().join("shell.checkpoint"),
         };
         let journal = Journal::new(dir.path().join("events.jsonl"));
-        let identity = Identity { account: "test".into(), device: "test".into() };
+        let identity = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         (dir, opts, journal, identity)
     }
 
