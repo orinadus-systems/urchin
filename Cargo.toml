@@ -4,10 +4,8 @@ members = [
     "crates/urchin-intake",
     "crates/urchin-mcp",
     "crates/urchin-collectors",
-    "crates/urchin-vault",
     "crates/urchin-cli",
     "crates/urchin-sdk",
-    "crates/urchin-agent",
 ]
 resolver = "2"
 

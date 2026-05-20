@@ -19,15 +19,19 @@ use urchin_core::{identity::Identity, journal::Journal};
 
 pub mod state;
 
+pub mod agent_bridge;
+pub mod apple_health;
+pub mod bank_csv;
+pub mod calendar;
 pub mod claude;
 pub mod codex;
-pub mod opencode;
-pub mod local_model;
 pub mod copilot;
 pub mod gemini;
-pub mod shell;
 pub mod git;
-pub mod agent_bridge;
+pub mod google_takeout;
+pub mod local_model;
+pub mod opencode;
+pub mod shell;
 
 // ─── Trait ───────────────────────────────────────────────────────────────────
 
@@ -54,7 +58,7 @@ pub trait Collector: Send + Sync {
 
 /// Output from one collector run.
 pub struct CollectorResult {
-    pub name:  &'static str,
+    pub name: &'static str,
     pub count: anyhow::Result<usize>,
 }
 
@@ -68,7 +72,9 @@ pub struct CollectorRegistry {
 impl CollectorRegistry {
     /// Empty registry.
     pub fn new() -> Self {
-        Self { collectors: Vec::new() }
+        Self {
+            collectors: Vec::new(),
+        }
     }
 
     /// Registry pre-loaded with every built-in collector.
@@ -85,6 +91,10 @@ impl CollectorRegistry {
         r.register(CodexCollector::new());
         r.register(OpenCodeCollector::new());
         r.register(LocalModelCollector::new());
+        r.register(GoogleTakeoutCollector::new());
+        r.register(AppleHealthCollector::new());
+        r.register(BankCsvCollector::new());
+        r.register(CalendarCollector::new());
         r
     }
 
@@ -105,7 +115,7 @@ impl CollectorRegistry {
             .iter()
             .filter(|c| c.is_available())
             .map(|c| CollectorResult {
-                name:  c.name(),
+                name: c.name(),
                 count: c.collect(journal.as_ref(), identity.as_ref()),
             })
             .collect()
@@ -124,14 +134,22 @@ struct ShellCollector {
     opts: shell::ShellOpts,
 }
 impl ShellCollector {
-    fn new() -> Self { Self { opts: shell::ShellOpts::defaults() } }
+    fn new() -> Self {
+        Self {
+            opts: shell::ShellOpts::defaults(),
+        }
+    }
 }
 impl Collector for ShellCollector {
-    fn name(&self) -> &'static str { "shell" }
+    fn name(&self) -> &'static str {
+        "shell"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         shell::collect(journal, identity, &self.opts)
     }
-    fn is_available(&self) -> bool { self.opts.history_path.exists() }
+    fn is_available(&self) -> bool {
+        self.opts.history_path.exists()
+    }
 }
 
 struct GitCollector {
@@ -153,97 +171,238 @@ impl GitCollector {
     }
 }
 impl Collector for GitCollector {
-    fn name(&self) -> &'static str { "git" }
+    fn name(&self) -> &'static str {
+        "git"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         let mut total = 0usize;
         for repo in &self.repo_roots {
-            total += git::collect_repo(journal, identity, &git::GitOpts::defaults_for(repo.clone()))?;
+            total +=
+                git::collect_repo(journal, identity, &git::GitOpts::defaults_for(repo.clone()))?;
         }
         Ok(total)
     }
-    fn is_available(&self) -> bool { !self.repo_roots.is_empty() }
+    fn is_available(&self) -> bool {
+        !self.repo_roots.is_empty()
+    }
 }
 
 struct ClaudeCollector {
     opts: claude::ClaudeOpts,
 }
 impl ClaudeCollector {
-    fn new() -> Self { Self { opts: claude::ClaudeOpts::defaults() } }
+    fn new() -> Self {
+        Self {
+            opts: claude::ClaudeOpts::defaults(),
+        }
+    }
 }
 impl Collector for ClaudeCollector {
-    fn name(&self) -> &'static str { "claude" }
+    fn name(&self) -> &'static str {
+        "claude"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         claude::collect(journal, identity, &self.opts)
     }
-    fn is_available(&self) -> bool { self.opts.history_path.exists() }
+    fn is_available(&self) -> bool {
+        self.opts.history_path.exists()
+    }
 }
 
 struct CopilotCollector {
     opts: copilot::CopilotOpts,
 }
 impl CopilotCollector {
-    fn new() -> Self { Self { opts: copilot::CopilotOpts::defaults() } }
+    fn new() -> Self {
+        Self {
+            opts: copilot::CopilotOpts::defaults(),
+        }
+    }
 }
 impl Collector for CopilotCollector {
-    fn name(&self) -> &'static str { "copilot" }
+    fn name(&self) -> &'static str {
+        "copilot"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         copilot::collect(journal, identity, &self.opts)
     }
-    fn is_available(&self) -> bool { self.opts.history_path.exists() }
+    fn is_available(&self) -> bool {
+        self.opts.history_path.exists()
+    }
 }
 
 struct GeminiCollector {
     opts: gemini::GeminiOpts,
 }
 impl GeminiCollector {
-    fn new() -> Self { Self { opts: gemini::GeminiOpts::defaults() } }
+    fn new() -> Self {
+        Self {
+            opts: gemini::GeminiOpts::defaults(),
+        }
+    }
 }
 impl Collector for GeminiCollector {
-    fn name(&self) -> &'static str { "gemini" }
+    fn name(&self) -> &'static str {
+        "gemini"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         gemini::collect(journal, identity, &self.opts)
     }
-    fn is_available(&self) -> bool { self.opts.chats_dir.exists() }
+    fn is_available(&self) -> bool {
+        self.opts.chats_dir.exists()
+    }
 }
 
 struct CodexCollector {
     opts: codex::CodexOpts,
 }
 impl CodexCollector {
-    fn new() -> Self { Self { opts: codex::CodexOpts::defaults() } }
+    fn new() -> Self {
+        Self {
+            opts: codex::CodexOpts::defaults(),
+        }
+    }
 }
 impl Collector for CodexCollector {
-    fn name(&self) -> &'static str { "codex" }
+    fn name(&self) -> &'static str {
+        "codex"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         codex::collect(journal, identity, &self.opts)
     }
-    fn is_available(&self) -> bool { self.opts.db_path.exists() }
+    fn is_available(&self) -> bool {
+        self.opts.db_path.exists()
+    }
 }
 
 struct OpenCodeCollector {
     opts: opencode::OpenCodeOpts,
 }
 impl OpenCodeCollector {
-    fn new() -> Self { Self { opts: opencode::OpenCodeOpts::defaults() } }
+    fn new() -> Self {
+        Self {
+            opts: opencode::OpenCodeOpts::defaults(),
+        }
+    }
 }
 impl Collector for OpenCodeCollector {
-    fn name(&self) -> &'static str { "opencode" }
+    fn name(&self) -> &'static str {
+        "opencode"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         opencode::collect(journal, identity, &self.opts)
     }
-    fn is_available(&self) -> bool { self.opts.db_path.exists() }
+    fn is_available(&self) -> bool {
+        self.opts.db_path.exists()
+    }
 }
 
 struct LocalModelCollector {
     opts: local_model::LocalModelOpts,
 }
 impl LocalModelCollector {
-    fn new() -> Self { Self { opts: local_model::LocalModelOpts::defaults() } }
+    fn new() -> Self {
+        Self {
+            opts: local_model::LocalModelOpts::defaults(),
+        }
+    }
 }
 impl Collector for LocalModelCollector {
-    fn name(&self) -> &'static str { "local-model" }
+    fn name(&self) -> &'static str {
+        "local-model"
+    }
     fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
         local_model::collect(journal, identity, &self.opts)
     }
-    fn is_available(&self) -> bool { self.opts.drop_file.exists() }
+    fn is_available(&self) -> bool {
+        self.opts.drop_file.exists()
+    }
+}
+
+struct GoogleTakeoutCollector {
+    opts: google_takeout::GoogleTakeoutOpts,
+}
+impl GoogleTakeoutCollector {
+    fn new() -> Self {
+        Self {
+            opts: google_takeout::GoogleTakeoutOpts::defaults(),
+        }
+    }
+}
+impl Collector for GoogleTakeoutCollector {
+    fn name(&self) -> &'static str {
+        "google-takeout"
+    }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        google_takeout::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool {
+        self.opts.import_dir.exists()
+    }
+}
+
+struct AppleHealthCollector {
+    opts: apple_health::AppleHealthOpts,
+}
+impl AppleHealthCollector {
+    fn new() -> Self {
+        Self {
+            opts: apple_health::AppleHealthOpts::defaults(),
+        }
+    }
+}
+impl Collector for AppleHealthCollector {
+    fn name(&self) -> &'static str {
+        "apple-health"
+    }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        apple_health::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool {
+        self.opts.export_path.exists()
+    }
+}
+
+struct BankCsvCollector {
+    opts: bank_csv::BankCsvOpts,
+}
+impl BankCsvCollector {
+    fn new() -> Self {
+        Self {
+            opts: bank_csv::BankCsvOpts::defaults(),
+        }
+    }
+}
+impl Collector for BankCsvCollector {
+    fn name(&self) -> &'static str {
+        "bank-csv"
+    }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        bank_csv::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool {
+        self.opts.import_dir.exists()
+    }
+}
+
+struct CalendarCollector {
+    opts: calendar::CalendarOpts,
+}
+impl CalendarCollector {
+    fn new() -> Self {
+        Self {
+            opts: calendar::CalendarOpts::defaults(),
+        }
+    }
+}
+impl Collector for CalendarCollector {
+    fn name(&self) -> &'static str {
+        "calendar"
+    }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        calendar::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool {
+        self.opts.import_dir.exists()
+    }
 }

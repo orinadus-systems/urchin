@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// The canonical unit of memory in Urchin.
@@ -23,18 +23,59 @@ pub struct Event {
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub actor: Option<Actor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<EventMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum EventKind {
+    // Dev / AI activity
     Conversation,
     Agent,
     Command,
     Commit,
     File,
     Decision,
+    // Personal data
+    Purchase,
+    Location,
+    HealthMetric,
+    CalendarEvent,
+    SearchQuery,
+    WatchHistory,
     Other(String),
+}
+
+/// Structured fields for personal data event kinds.
+/// All fields are optional; populate only what the source provides.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EventMeta {
+    // Purchase
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merchant: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    // Location
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lng: Option<f64>,
+    // Health
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    // Calendar / health duration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u64>,
+    // Calendar
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attendees: Option<u32>,
 }
 
 /// Identity envelope — who produced this event.
@@ -62,6 +103,7 @@ impl Event {
             title: None,
             tags: vec![],
             actor: None,
+            meta: None,
         }
     }
 }
@@ -86,7 +128,48 @@ mod tests {
         let event = Event::new("cli", EventKind::Agent, "test");
         let json = serde_json::to_string(&event).unwrap();
         assert!(!json.contains("null"), "nulls should be omitted: {}", json);
-        assert!(!json.contains("\"tags\":[]"), "empty tags should be omitted: {}", json);
+        assert!(
+            !json.contains("\"tags\":[]"),
+            "empty tags should be omitted: {}",
+            json
+        );
+    }
+
+    #[test]
+    fn personal_data_kinds_roundtrip() {
+        for kind in [
+            EventKind::Purchase,
+            EventKind::Location,
+            EventKind::HealthMetric,
+            EventKind::CalendarEvent,
+            EventKind::SearchQuery,
+            EventKind::WatchHistory,
+        ] {
+            let event = Event::new("test", kind.clone(), "payload");
+            let json = serde_json::to_string(&event).unwrap();
+            let decoded: Event = serde_json::from_str(&json).unwrap();
+            assert_eq!(decoded.kind, kind);
+            assert!(decoded.meta.is_none());
+        }
+    }
+
+    #[test]
+    fn event_meta_no_nulls() {
+        let mut event = Event::new("bank", EventKind::Purchase, "Coffee");
+        event.meta = Some(EventMeta {
+            amount: Some(4.50),
+            currency: Some("USD".into()),
+            merchant: Some("Blue Bottle".into()),
+            ..Default::default()
+        });
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(!json.contains("null"), "nulls should be omitted: {}", json);
+        assert!(json.contains("\"amount\":4.5"));
+        assert!(json.contains("\"merchant\":\"Blue Bottle\""));
+        assert!(
+            !json.contains("lat"),
+            "unset location fields should be absent"
+        );
     }
 
     #[test]

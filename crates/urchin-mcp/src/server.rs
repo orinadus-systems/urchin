@@ -13,25 +13,25 @@ use urchin_core::{config::Config, identity::Identity, journal::Journal};
 use crate::tools::{self, ToolContext};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
-const SERVER_NAME:      &str = "urchin";
-const SERVER_VERSION:   &str = env!("CARGO_PKG_VERSION");
+const SERVER_NAME: &str = "urchin";
+const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn run(cfg: Config) -> Result<()> {
     let index_path = cfg.journal_path.with_file_name("index.db");
-    let journal = Journal::new_with_index(cfg.journal_path.clone(), index_path)
-        .unwrap_or_else(|e| {
+    let journal =
+        Journal::new_with_index(cfg.journal_path.clone(), index_path).unwrap_or_else(|e| {
             tracing::warn!("SQLite index unavailable, using JSONL fallback: {}", e);
             Journal::new(cfg.journal_path.clone())
         });
     let ctx = ToolContext {
-        journal:    Arc::new(journal),
-        identity:   Arc::new(Identity::resolve()),
-        config:     Arc::new(cfg),
-        ephemeral:  Arc::new(AtomicBool::new(false)),
+        journal: Arc::new(journal),
+        identity: Arc::new(Identity::resolve()),
+        config: Arc::new(cfg),
+        ephemeral: Arc::new(AtomicBool::new(false)),
         suppressed: Arc::new(AtomicUsize::new(0)),
     };
 
-    let stdin  = tokio::io::stdin();
+    let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin);
     let mut stdout = tokio::io::stdout();
     let mut line = String::new();
@@ -41,10 +41,14 @@ pub async fn run(cfg: Config) -> Result<()> {
     loop {
         line.clear();
         let n = reader.read_line(&mut line).await?;
-        if n == 0 { break; } // EOF: peer closed stdin
+        if n == 0 {
+            break;
+        } // EOF: peer closed stdin
 
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
 
         let req: Value = match serde_json::from_str(trimmed) {
             Ok(v) => v,
@@ -65,7 +69,7 @@ pub async fn run(cfg: Config) -> Result<()> {
 }
 
 fn handle(req: &Value, ctx: &ToolContext) -> Option<Value> {
-    let id     = req.get("id").cloned();
+    let id = req.get("id").cloned();
     let method = req.get("method").and_then(|v| v.as_str()).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(Value::Null);
 
@@ -98,17 +102,22 @@ fn handle(req: &Value, ctx: &ToolContext) -> Option<Value> {
         }
 
         // MCP spec requires these to be answered even if empty.
-        "resources/list" => {
-            Some(success_response(&id.unwrap_or(Value::Null), json!({ "resources": [] })))
-        }
+        "resources/list" => Some(success_response(
+            &id.unwrap_or(Value::Null),
+            json!({ "resources": [] }),
+        )),
 
-        "prompts/list" => {
-            Some(success_response(&id.unwrap_or(Value::Null), json!({ "prompts": [] })))
-        }
+        "prompts/list" => Some(success_response(
+            &id.unwrap_or(Value::Null),
+            json!({ "prompts": [] }),
+        )),
 
         "tools/call" => {
             let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
 
             match tools::call(name, &args, ctx) {
                 Ok(text) => Some(success_response(
@@ -156,10 +165,7 @@ fn error_response(id: &Value, code: i64, message: &str) -> Value {
     })
 }
 
-async fn write_response(
-    stdout: &mut tokio::io::Stdout,
-    resp: &Value,
-) -> Result<()> {
+async fn write_response(stdout: &mut tokio::io::Stdout, resp: &Value) -> Result<()> {
     let s = serde_json::to_string(resp)?;
     stdout.write_all(s.as_bytes()).await?;
     stdout.write_all(b"\n").await?;
@@ -177,10 +183,13 @@ mod tests {
         let mut cfg = Config::default();
         cfg.journal_path = tmp.path().to_path_buf();
         let ctx = ToolContext {
-            journal:    Arc::new(Journal::new(tmp.path().to_path_buf())),
-            identity:   Arc::new(Identity { account: "t".into(), device: "t".into() }),
-            config:     Arc::new(cfg),
-            ephemeral:  Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            journal: Arc::new(Journal::new(tmp.path().to_path_buf())),
+            identity: Arc::new(Identity {
+                account: "t".into(),
+                device: "t".into(),
+            }),
+            config: Arc::new(cfg),
+            ephemeral: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             suppressed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
         (ctx, tmp)
@@ -222,7 +231,7 @@ mod tests {
         });
         let resp = handle(&req, &ctx).unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 8);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"urchin_status"));
         assert!(names.contains(&"urchin_ingest"));
@@ -232,8 +241,6 @@ mod tests {
         assert!(names.contains(&"urchin_workspace_context"));
         assert!(names.contains(&"urchin_remember"));
         assert!(names.contains(&"urchin_ephemeral"));
-        assert!(names.contains(&"urchin_agent_reflect"));
-        assert!(names.contains(&"urchin_semantic_search"));
     }
 
     #[test]
@@ -248,7 +255,10 @@ mod tests {
         let resp = handle(&req, &ctx).unwrap();
         let content = &resp["result"]["content"];
         assert_eq!(content[0]["type"], "text");
-        assert!(content[0]["text"].as_str().unwrap().contains("running:  true"));
+        assert!(content[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("running:  true"));
     }
 
     #[test]

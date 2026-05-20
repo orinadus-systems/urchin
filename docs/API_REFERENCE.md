@@ -129,9 +129,9 @@ curl -X POST http://127.0.0.1:18799/ingest \
     "title": "Cross-process ephemeral design decision",
     "tags": ["architecture", "ephemeral", "substrate"],
     "actor": {
-      "account": "samhc",
-      "device": "saucemachine",
-      "workspace": "/home/user/dev/orinadus/substrate/urchin-rust"
+      "account": "alice",
+      "device": "workstation",
+      "workspace": "/home/alice/dev/myproject"
     }
   }'
 ```

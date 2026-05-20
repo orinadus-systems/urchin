@@ -1,6 +1,6 @@
+use crate::client::UrchinClient;
 use anyhow::Result;
 use urchin_core::event::{Event, EventKind};
-use crate::client::UrchinClient;
 
 /// Fluent builder for Urchin events.
 /// Obtain one via `UrchinClient::builder()`, set context fields, then call a terminal kind method.
@@ -13,25 +13,25 @@ use crate::client::UrchinClient;
 ///     .await?;
 /// ```
 pub struct EventBuilder<'a> {
-    client:    &'a UrchinClient,
-    source:    String,
-    brain:     Option<String>,
+    client: &'a UrchinClient,
+    source: String,
+    brain: Option<String>,
     workspace: Option<String>,
-    session:   Option<String>,
-    title:     Option<String>,
-    tags:      Vec<String>,
+    session: Option<String>,
+    title: Option<String>,
+    tags: Vec<String>,
 }
 
 impl<'a> EventBuilder<'a> {
     pub fn new(client: &'a UrchinClient) -> Self {
         Self {
             client,
-            source:    "sdk".to_string(),
-            brain:     None,
+            source: "sdk".to_string(),
+            brain: None,
             workspace: None,
-            session:   None,
-            title:     None,
-            tags:      vec![],
+            session: None,
+            title: None,
+            tags: vec![],
         }
     }
 
@@ -92,15 +92,18 @@ impl<'a> EventBuilder<'a> {
     }
 
     async fn send(self, kind: EventKind, content: String) -> Result<String> {
-        anyhow::ensure!(!content.trim().is_empty(), "event content must not be empty");
+        anyhow::ensure!(
+            !content.trim().is_empty(),
+            "event content must not be empty"
+        );
 
-        let client = self.client;   // &'a UrchinClient is Copy
+        let client = self.client; // &'a UrchinClient is Copy
         let mut event = Event::new(self.source, kind, content);
-        event.brain     = self.brain;
+        event.brain = self.brain;
         event.workspace = self.workspace;
-        event.session   = self.session;
-        event.title     = self.title;
-        event.tags      = self.tags;
+        event.session = self.session;
+        event.title = self.title;
+        event.tags = self.tags;
 
         client.ingest(&event).await
     }

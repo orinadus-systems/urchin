@@ -16,15 +16,15 @@ pub struct Index {
 }
 
 pub(crate) struct IndexRow {
-    pub id:           String,
+    pub id: String,
     pub timestamp_ms: i64,
-    pub source:       String,
-    pub kind:         String,
-    pub workspace:    Option<String>,
-    pub tags:         String,
-    pub byte_offset:  u64,
-    pub json:         String,
-    pub content:      String,
+    pub source: String,
+    pub kind: String,
+    pub workspace: Option<String>,
+    pub tags: String,
+    pub byte_offset: u64,
+    pub json: String,
+    pub content: String,
 }
 
 impl Index {
@@ -32,7 +32,9 @@ impl Index {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        Ok(Self { path: path.to_path_buf() })
+        Ok(Self {
+            path: path.to_path_buf(),
+        })
     }
 
     fn connect(&self) -> Result<Connection> {
@@ -43,7 +45,8 @@ impl Index {
 
     pub fn ensure_schema(&self) -> Result<()> {
         let conn = self.connect()?;
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             CREATE TABLE IF NOT EXISTS events (
                 id          TEXT PRIMARY KEY,
                 timestamp   INTEGER NOT NULL,
@@ -58,8 +61,18 @@ impl Index {
             CREATE INDEX IF NOT EXISTS idx_ts  ON events(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_src ON events(source, timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_ws  ON events(workspace, timestamp DESC);
-        ")?;
+        ",
+        )?;
         Ok(())
+    }
+
+    /// Returns the number of events in the index. Returns 0 if the table doesn't exist yet.
+    pub fn count(&self) -> Result<usize> {
+        let conn = self.connect()?;
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM events", [], |r| r.get(0))
+            .unwrap_or(0);
+        Ok(n as usize)
     }
 
     pub(crate) fn insert_batch(&self, rows: &[IndexRow]) -> Result<()> {
@@ -96,8 +109,13 @@ impl Index {
         chrono::Utc::now().timestamp_millis() - (hours * 3_600_000.0) as i64
     }
 
-    pub fn query_recent(&self, hours: f64, source: Option<&str>, limit: usize) -> Result<Vec<Event>> {
-        let conn   = self.connect()?;
+    pub fn query_recent(
+        &self,
+        hours: f64,
+        source: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Event>> {
+        let conn = self.connect()?;
         let cutoff = Self::cutoff_ms(hours);
         let jsons: Vec<String> = if let Some(src) = source {
             let mut stmt = conn.prepare(
@@ -116,12 +134,15 @@ impl Index {
             let rows = stmt.query_map(params![cutoff, limit as i64], |r| r.get(0))?;
             rows.filter_map(|r| r.ok()).collect()
         };
-        Ok(jsons.into_iter().filter_map(|j| serde_json::from_str(&j).ok()).collect())
+        Ok(jsons
+            .into_iter()
+            .filter_map(|j| serde_json::from_str(&j).ok())
+            .collect())
     }
 
     pub fn query_search(&self, query: &str, hours: f64, limit: usize) -> Result<Vec<Event>> {
-        let conn    = self.connect()?;
-        let cutoff  = Self::cutoff_ms(hours);
+        let conn = self.connect()?;
+        let cutoff = Self::cutoff_ms(hours);
         let pattern = format!("%{}%", query.to_lowercase());
         let mut stmt = conn.prepare(
             "SELECT json FROM events
@@ -132,12 +153,15 @@ impl Index {
             .query_map(params![cutoff, pattern, limit as i64], |r| r.get(0))?
             .filter_map(|r| r.ok())
             .collect();
-        Ok(jsons.into_iter().filter_map(|j| serde_json::from_str(&j).ok()).collect())
+        Ok(jsons
+            .into_iter()
+            .filter_map(|j| serde_json::from_str(&j).ok())
+            .collect())
     }
 
     pub fn query_project(&self, project: &str, hours: f64, limit: usize) -> Result<Vec<Event>> {
-        let conn    = self.connect()?;
-        let cutoff  = Self::cutoff_ms(hours);
+        let conn = self.connect()?;
+        let cutoff = Self::cutoff_ms(hours);
         let pattern = format!("%{}%", project.to_lowercase());
         let mut stmt = conn.prepare(
             "SELECT json FROM events
@@ -151,12 +175,15 @@ impl Index {
             .query_map(params![cutoff, pattern, limit as i64], |r| r.get(0))?
             .filter_map(|r| r.ok())
             .collect();
-        Ok(jsons.into_iter().filter_map(|j| serde_json::from_str(&j).ok()).collect())
+        Ok(jsons
+            .into_iter()
+            .filter_map(|j| serde_json::from_str(&j).ok())
+            .collect())
     }
 
     pub fn query_workspace(&self, path: &str, hours: f64, limit: usize) -> Result<Vec<Event>> {
-        let conn    = self.connect()?;
-        let cutoff  = Self::cutoff_ms(hours);
+        let conn = self.connect()?;
+        let cutoff = Self::cutoff_ms(hours);
         let pattern = format!("%{}%", path.to_lowercase());
         let mut stmt = conn.prepare(
             "SELECT json FROM events
@@ -168,7 +195,10 @@ impl Index {
             .query_map(params![cutoff, pattern, limit as i64], |r| r.get(0))?
             .filter_map(|r| r.ok())
             .collect();
-        Ok(jsons.into_iter().filter_map(|j| serde_json::from_str(&j).ok()).collect())
+        Ok(jsons
+            .into_iter()
+            .filter_map(|j| serde_json::from_str(&j).ok())
+            .collect())
     }
 
     /// Wipe and rebuild the index from the JSONL journal in one transaction.
@@ -229,18 +259,18 @@ impl Index {
 /// Parse a JSONL line into an IndexRow. Returns None on parse failure.
 pub(crate) fn build_index_row(json_line: &str, byte_offset: u64) -> Option<IndexRow> {
     let v: serde_json::Value = serde_json::from_str(json_line).ok()?;
-    let id           = v["id"].as_str()?.to_string();
+    let id = v["id"].as_str()?.to_string();
     let timestamp_ms = chrono::DateTime::parse_from_rfc3339(v["timestamp"].as_str()?)
         .ok()?
         .timestamp_millis();
-    let source       = v["source"].as_str()?.to_string();
-    let kind         = v["kind"].as_str().unwrap_or("other").to_string();
-    let workspace    = v["workspace"].as_str().map(|s| s.to_string());
-    let tags         = v["tags"]
+    let source = v["source"].as_str()?.to_string();
+    let kind = v["kind"].as_str().unwrap_or("other").to_string();
+    let workspace = v["workspace"].as_str().map(|s| s.to_string());
+    let tags = v["tags"]
         .as_array()
         .map(|arr| serde_json::to_string(arr).unwrap_or_else(|_| "[]".into()))
         .unwrap_or_else(|| "[]".into());
-    let content      = v["content"].as_str().unwrap_or("").to_string();
+    let content = v["content"].as_str().unwrap_or("").to_string();
 
     Some(IndexRow {
         id,
@@ -272,17 +302,17 @@ mod tests {
         let mut event = Event::new(source, EventKind::Conversation, content);
         event.workspace = workspace.map(str::to_string);
         let ts_ms = event.timestamp.timestamp_millis();
-        let json  = serde_json::to_string(&event).unwrap();
+        let json = serde_json::to_string(&event).unwrap();
         IndexRow {
-            id:           event.id.to_string(),
+            id: event.id.to_string(),
             timestamp_ms: ts_ms,
-            source:       source.to_string(),
-            kind:         "conversation".to_string(),
-            workspace:    workspace.map(str::to_string),
-            tags:         "[]".to_string(),
-            byte_offset:  0,
+            source: source.to_string(),
+            kind: "conversation".to_string(),
+            workspace: workspace.map(str::to_string),
+            tags: "[]".to_string(),
+            byte_offset: 0,
             json,
-            content:      content.to_string(),
+            content: content.to_string(),
         }
     }
 
@@ -290,11 +320,13 @@ mod tests {
     fn schema_creates_table() {
         let (_dir, idx) = fixture();
         let conn = idx.connect().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='events'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='events'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(count, 1);
     }
 
@@ -302,7 +334,7 @@ mod tests {
     fn insert_and_query_recent() {
         let (_dir, idx) = fixture();
         let rows = vec![
-            make_row("cli", "first event",  None),
+            make_row("cli", "first event", None),
             make_row("cli", "second event", None),
         ];
         idx.insert_batch(&rows).unwrap();
@@ -317,16 +349,18 @@ mod tests {
         let fixed_id = row1.id.clone();
         let fixed_json = row1.json.clone();
         let mut row2 = make_row("cli", "hello", None);
-        row2.id   = fixed_id.clone();
+        row2.id = fixed_id.clone();
         row2.json = fixed_json;
         idx.insert_batch(&[row1]).unwrap();
         idx.insert_batch(&[row2]).unwrap();
         let conn = idx.connect().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM events WHERE id = ?1",
-            params![fixed_id],
-            |r| r.get(0),
-        ).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE id = ?1",
+                params![fixed_id],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(count, 1);
     }
 
@@ -336,7 +370,8 @@ mod tests {
         idx.insert_batch(&[
             make_row("cli", "the quick brown fox", None),
             make_row("cli", "something else entirely", None),
-        ]).unwrap();
+        ])
+        .unwrap();
         let hits = idx.query_search("quick", 1.0, 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].content, "the quick brown fox");
@@ -347,8 +382,9 @@ mod tests {
         let (_dir, idx) = fixture();
         idx.insert_batch(&[
             make_row("cli", "in urchin", Some("/home/me/dev/urchin")),
-            make_row("cli", "in other",  Some("/home/me/dev/other")),
-        ]).unwrap();
+            make_row("cli", "in other", Some("/home/me/dev/other")),
+        ])
+        .unwrap();
         let hits = idx.query_workspace("/home/me/dev/urchin", 1.0, 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].content, "in urchin");
@@ -358,12 +394,18 @@ mod tests {
     fn rebuild_round_trips() {
         use crate::journal::Journal;
 
-        let dir          = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let journal_path = dir.path().join("events.jsonl");
-        let journal      = Journal::new(journal_path.clone());
+        let journal = Journal::new(journal_path.clone());
 
         for i in 0..5 {
-            journal.append(&Event::new("cli", EventKind::Conversation, format!("event {}", i))).unwrap();
+            journal
+                .append(&Event::new(
+                    "cli",
+                    EventKind::Conversation,
+                    format!("event {}", i),
+                ))
+                .unwrap();
         }
         journal.flush().unwrap();
 
@@ -378,8 +420,9 @@ mod tests {
         let (_dir, idx) = fixture();
         idx.insert_batch(&[
             make_row("claude", "from claude", None),
-            make_row("shell",  "from shell",  None),
-        ]).unwrap();
+            make_row("shell", "from shell", None),
+        ])
+        .unwrap();
         let hits = idx.query_recent(1.0, Some("claude"), 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].source, "claude");

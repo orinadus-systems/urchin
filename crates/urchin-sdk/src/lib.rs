@@ -1,5 +1,5 @@
-pub mod client;
 pub mod builder;
+pub mod client;
 
-pub use client::{HttpError, UrchinClient};
 pub use builder::EventBuilder;
+pub use client::{HttpError, UrchinClient};

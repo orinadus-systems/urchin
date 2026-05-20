@@ -43,7 +43,7 @@ use crate::state::state_dir;
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 pub struct LocalModelOpts {
-    pub drop_file:       PathBuf,
+    pub drop_file: PathBuf,
     pub checkpoint_path: PathBuf,
 }
 
@@ -51,7 +51,11 @@ impl LocalModelOpts {
     pub fn defaults() -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
         Self {
-            drop_file:       home.join(".local").join("share").join("urchin").join("local-model.jsonl"),
+            drop_file: home
+                .join(".local")
+                .join("share")
+                .join("urchin")
+                .join("local-model.jsonl"),
             checkpoint_path: state_dir().join("local_model.offset"),
         }
     }
@@ -78,9 +82,9 @@ fn write_checkpoint(path: &PathBuf, offset: u64) -> Result<()> {
 
 #[derive(Debug, Deserialize)]
 struct Record {
-    prompt:    String,
-    model:     Option<String>,
-    ts:        Option<String>,
+    prompt: String,
+    model: Option<String>,
+    ts: Option<String>,
     workspace: Option<String>,
 }
 
@@ -103,9 +107,9 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &LocalModelOpts) ->
     file.seek(SeekFrom::Start(offset))?;
 
     let mut reader = BufReader::new(&file);
-    let mut line   = String::new();
-    let mut count  = 0usize;
-    let mut pos    = offset;
+    let mut line = String::new();
+    let mut count = 0usize;
+    let mut pos = offset;
 
     loop {
         line.clear();
@@ -121,7 +125,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &LocalModelOpts) ->
         }
 
         let record: Record = match serde_json::from_str(raw) {
-            Ok(r)  => r,
+            Ok(r) => r,
             Err(e) => {
                 tracing::warn!("local-model collector: skipping malformed line: {}", e);
                 continue;
@@ -147,10 +151,10 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &LocalModelOpts) ->
         let mut event = Event::new("local-model", EventKind::Conversation, record.prompt.trim());
         event.timestamp = ts;
         event.workspace = record.workspace.clone();
-        event.tags      = tags;
+        event.tags = tags;
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: record.workspace,
         });
 
@@ -183,7 +187,10 @@ mod tests {
 
     fn dummy_journal(tmp: &TempDir) -> (Journal, Identity) {
         let j = Journal::new(tmp.path().join("journal.jsonl"));
-        let id = Identity { account: "test".into(), device: "test".into() };
+        let id = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         (j, id)
     }
 
@@ -191,7 +198,7 @@ mod tests {
     fn no_drop_file_returns_zero() {
         let tmp = TempDir::new().unwrap();
         let opts = LocalModelOpts {
-            drop_file:       tmp.path().join("missing.jsonl"),
+            drop_file: tmp.path().join("missing.jsonl"),
             checkpoint_path: tmp.path().join("ckpt"),
         };
         let (j, id) = dummy_journal(&tmp);
@@ -200,11 +207,15 @@ mod tests {
 
     #[test]
     fn collects_valid_records() {
-        let tmp  = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
         let drop = tmp.path().join("local-model.jsonl");
         let mut f = File::create(&drop).unwrap();
         writeln!(f, r#"{{"prompt":"fix the memory leak","model":"ollama:mistral","ts":"2026-01-01T00:00:00Z","workspace":"/opt/project"}}"#).unwrap();
-        writeln!(f, r#"{{"prompt":"add retry logic","model":"lmstudio:llama3"}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"prompt":"add retry logic","model":"lmstudio:llama3"}}"#
+        )
+        .unwrap();
         let opts = make_opts(&tmp, drop);
         let (j, id) = dummy_journal(&tmp);
         assert_eq!(collect(&j, &id, &opts).unwrap(), 2);
@@ -212,7 +223,7 @@ mod tests {
 
     #[test]
     fn watermark_prevents_reprocessing() {
-        let tmp  = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
         let drop = tmp.path().join("local-model.jsonl");
         let mut f = File::create(&drop).unwrap();
         writeln!(f, r#"{{"prompt":"first run","model":"ollama:mistral"}}"#).unwrap();
@@ -225,7 +236,7 @@ mod tests {
 
     #[test]
     fn picks_up_new_appended_records() {
-        let tmp  = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
         let drop = tmp.path().join("local-model.jsonl");
         let mut f = File::create(&drop).unwrap();
         writeln!(f, r#"{{"prompt":"first"}}"#).unwrap();
@@ -233,7 +244,10 @@ mod tests {
         let (j, id) = dummy_journal(&tmp);
         assert_eq!(collect(&j, &id, &opts).unwrap(), 1);
         // append more
-        let mut f2 = std::fs::OpenOptions::new().append(true).open(&drop).unwrap();
+        let mut f2 = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&drop)
+            .unwrap();
         writeln!(f2, r#"{{"prompt":"second","model":"ollama:phi4"}}"#).unwrap();
         let opts2 = make_opts(&tmp, drop);
         assert_eq!(collect(&j, &id, &opts2).unwrap(), 1);
@@ -241,7 +255,7 @@ mod tests {
 
     #[test]
     fn skips_malformed_and_empty_lines() {
-        let tmp  = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
         let drop = tmp.path().join("local-model.jsonl");
         let mut f = File::create(&drop).unwrap();
         writeln!(f, "{{not json}}").unwrap();
@@ -254,7 +268,7 @@ mod tests {
 
     #[test]
     fn model_tag_included_when_present() {
-        let tmp  = TempDir::new().unwrap();
+        let tmp = TempDir::new().unwrap();
         let drop = tmp.path().join("local-model.jsonl");
         let mut f = File::create(&drop).unwrap();
         writeln!(f, r#"{{"prompt":"test","model":"ollama:mistral"}}"#).unwrap();

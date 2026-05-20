@@ -27,7 +27,7 @@ use crate::state::state_dir;
 
 pub struct GeminiOpts {
     /// Directory containing session JSONL files, e.g. ~/.gemini/tmp/{user}/chats/
-    pub chats_dir:       PathBuf,
+    pub chats_dir: PathBuf,
     pub checkpoint_path: PathBuf,
 }
 
@@ -38,7 +38,7 @@ impl GeminiOpts {
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| "unknown".to_string());
         Self {
-            chats_dir:       home.join(".gemini").join("tmp").join(&user).join("chats"),
+            chats_dir: home.join(".gemini").join("tmp").join(&user).join("chats"),
             checkpoint_path: state_dir().join("gemini.checkpoint.json"),
         }
     }
@@ -49,7 +49,7 @@ struct Checkpoint {
     /// Session filenames (basename) that have been fully processed.
     seen: Vec<String>,
     /// Basename of the last partially-read file (the active session).
-    partial_file:   Option<String>,
+    partial_file: Option<String>,
     partial_offset: u64,
 }
 
@@ -96,7 +96,7 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &GeminiOpts) -> Res
 
         let n = process_file(file, start, journal, identity, &mut |end_offset| {
             if is_newest {
-                ckpt.partial_file   = Some(base.clone());
+                ckpt.partial_file = Some(base.clone());
                 ckpt.partial_offset = end_offset;
             }
         })?;
@@ -116,11 +116,11 @@ pub fn collect(journal: &Journal, identity: &Identity, opts: &GeminiOpts) -> Res
 /// Calls `on_end(end_offset)` once with the final EOF position so the caller
 /// can persist the partial offset.
 fn process_file<F>(
-    path:     &PathBuf,
-    start:    u64,
-    journal:  &Journal,
+    path: &PathBuf,
+    start: u64,
+    journal: &Journal,
     identity: &Identity,
-    on_end:   &mut F,
+    on_end: &mut F,
 ) -> Result<usize>
 where
     F: FnMut(u64),
@@ -133,19 +133,25 @@ where
     f.seek(SeekFrom::Start(start))?;
 
     let mut reader = BufReader::new(f);
-    let mut count  = 0usize;
-    let mut pos    = start;
+    let mut count = 0usize;
+    let mut pos = start;
 
     loop {
         let mut line = String::new();
         let bytes = reader.read_line(&mut line)?;
-        if bytes == 0 { break; }
+        if bytes == 0 {
+            break;
+        }
         pos += bytes as u64;
 
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
+        if trimmed.is_empty() {
+            continue;
+        }
 
-        let Ok(obj) = serde_json::from_str::<Value>(trimmed) else { continue };
+        let Ok(obj) = serde_json::from_str::<Value>(trimmed) else {
+            continue;
+        };
 
         if obj.get("type").and_then(|v| v.as_str()) != Some("user") {
             continue;
@@ -163,7 +169,9 @@ where
             .collect::<Vec<_>>()
             .join("\n");
 
-        if text.trim().is_empty() { continue; }
+        if text.trim().is_empty() {
+            continue;
+        }
 
         // Use the event's own timestamp if present, else now.
         let timestamp: DateTime<Utc> = obj
@@ -175,8 +183,8 @@ where
         let mut event = Event::new("gemini", EventKind::Conversation, text.trim().to_string());
         event.timestamp = timestamp;
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: None,
         });
 
@@ -217,15 +225,18 @@ mod tests {
     use tempfile::TempDir;
 
     fn fixture() -> (TempDir, GeminiOpts, Journal, Identity) {
-        let dir   = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let chats = dir.path().join("chats");
         fs::create_dir_all(&chats).unwrap();
         let opts = GeminiOpts {
-            chats_dir:       chats,
+            chats_dir: chats,
             checkpoint_path: dir.path().join("gemini.checkpoint.json"),
         };
-        let journal  = Journal::new(dir.path().join("events.jsonl"));
-        let identity = Identity { account: "test".into(), device: "test".into() };
+        let journal = Journal::new(dir.path().join("events.jsonl"));
+        let identity = Identity {
+            account: "test".into(),
+            device: "test".into(),
+        };
         (dir, opts, journal, identity)
     }
 
@@ -238,18 +249,24 @@ mod tests {
     }
 
     fn user_msg(ts: &str, text: &str) -> String {
-        format!(r#"{{"type":"user","timestamp":"{}","content":[{{"text":"{}"}}]}}"#, ts, text)
+        format!(
+            r#"{{"type":"user","timestamp":"{}","content":[{{"text":"{}"}}]}}"#,
+            ts, text
+        )
     }
 
     #[test]
     fn no_chats_dir_returns_zero() {
-        let dir   = tempfile::tempdir().unwrap();
-        let opts  = GeminiOpts {
-            chats_dir:       dir.path().join("nonexistent"),
+        let dir = tempfile::tempdir().unwrap();
+        let opts = GeminiOpts {
+            chats_dir: dir.path().join("nonexistent"),
             checkpoint_path: dir.path().join("ckpt.json"),
         };
-        let journal  = Journal::new(dir.path().join("events.jsonl"));
-        let identity = Identity { account: "t".into(), device: "t".into() };
+        let journal = Journal::new(dir.path().join("events.jsonl"));
+        let identity = Identity {
+            account: "t".into(),
+            device: "t".into(),
+        };
         assert_eq!(collect(&journal, &identity, &opts).unwrap(), 0);
     }
 
@@ -262,10 +279,14 @@ mod tests {
     #[test]
     fn first_run_collects_user_messages() {
         let (_dir, opts, journal, identity) = fixture();
-        write_session(&opts.chats_dir, "session-001.jsonl", &[
-            &user_msg("2026-05-01T10:00:00Z", "hello gemini"),
-            &user_msg("2026-05-01T10:01:00Z", "do a thing"),
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-001.jsonl",
+            &[
+                &user_msg("2026-05-01T10:00:00Z", "hello gemini"),
+                &user_msg("2026-05-01T10:01:00Z", "do a thing"),
+            ],
+        );
         let n = collect(&journal, &identity, &opts).unwrap();
         assert_eq!(n, 2);
         let events = journal.read_all().unwrap();
@@ -276,9 +297,11 @@ mod tests {
     #[test]
     fn second_run_emits_nothing_without_new_content() {
         let (_dir, opts, journal, identity) = fixture();
-        write_session(&opts.chats_dir, "session-001.jsonl", &[
-            &user_msg("2026-05-01T10:00:00Z", "hi"),
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-001.jsonl",
+            &[&user_msg("2026-05-01T10:00:00Z", "hi")],
+        );
         assert_eq!(collect(&journal, &identity, &opts).unwrap(), 1);
         assert_eq!(collect(&journal, &identity, &opts).unwrap(), 0);
     }
@@ -286,14 +309,18 @@ mod tests {
     #[test]
     fn new_session_file_picked_up_on_next_run() {
         let (_dir, opts, journal, identity) = fixture();
-        write_session(&opts.chats_dir, "session-001.jsonl", &[
-            &user_msg("2026-05-01T10:00:00Z", "first"),
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-001.jsonl",
+            &[&user_msg("2026-05-01T10:00:00Z", "first")],
+        );
         assert_eq!(collect(&journal, &identity, &opts).unwrap(), 1);
 
-        write_session(&opts.chats_dir, "session-002.jsonl", &[
-            &user_msg("2026-05-02T10:00:00Z", "second"),
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-002.jsonl",
+            &[&user_msg("2026-05-02T10:00:00Z", "second")],
+        );
         assert_eq!(collect(&journal, &identity, &opts).unwrap(), 1);
 
         let events = journal.read_all().unwrap();
@@ -303,11 +330,15 @@ mod tests {
     #[test]
     fn non_user_lines_are_skipped() {
         let (_dir, opts, journal, identity) = fixture();
-        write_session(&opts.chats_dir, "session-001.jsonl", &[
-            r#"{"type":"gemini","content":[{"text":"response"}]}"#,
-            &user_msg("2026-05-01T10:00:00Z", "my prompt"),
-            r#"{"type":"info","content":"something"}"#,
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-001.jsonl",
+            &[
+                r#"{"type":"gemini","content":[{"text":"response"}]}"#,
+                &user_msg("2026-05-01T10:00:00Z", "my prompt"),
+                r#"{"type":"info","content":"something"}"#,
+            ],
+        );
         let n = collect(&journal, &identity, &opts).unwrap();
         assert_eq!(n, 1);
         let events = journal.read_all().unwrap();
@@ -317,9 +348,11 @@ mod tests {
     #[test]
     fn event_source_is_gemini() {
         let (_dir, opts, journal, identity) = fixture();
-        write_session(&opts.chats_dir, "session-001.jsonl", &[
-            &user_msg("2026-05-01T10:00:00Z", "test"),
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-001.jsonl",
+            &[&user_msg("2026-05-01T10:00:00Z", "test")],
+        );
         collect(&journal, &identity, &opts).unwrap();
         let events = journal.read_all().unwrap();
         assert_eq!(events[0].source, "gemini");
@@ -329,13 +362,18 @@ mod tests {
     #[test]
     fn timestamp_preserved_from_session_record() {
         let (_dir, opts, journal, identity) = fixture();
-        write_session(&opts.chats_dir, "session-001.jsonl", &[
-            &user_msg("2026-05-01T15:30:00Z", "test ts"),
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-001.jsonl",
+            &[&user_msg("2026-05-01T15:30:00Z", "test ts")],
+        );
         collect(&journal, &identity, &opts).unwrap();
         let events = journal.read_all().unwrap();
         assert_eq!(
-            events[0].timestamp.to_rfc3339().starts_with("2026-05-01T15:30:00"),
+            events[0]
+                .timestamp
+                .to_rfc3339()
+                .starts_with("2026-05-01T15:30:00"),
             true
         );
     }
@@ -343,10 +381,14 @@ mod tests {
     #[test]
     fn empty_text_parts_skipped() {
         let (_dir, opts, journal, identity) = fixture();
-        write_session(&opts.chats_dir, "session-001.jsonl", &[
-            r#"{"type":"user","content":[{"text":""},{"text":"   "}]}"#,
-            &user_msg("2026-05-01T10:00:00Z", "real message"),
-        ]);
+        write_session(
+            &opts.chats_dir,
+            "session-001.jsonl",
+            &[
+                r#"{"type":"user","content":[{"text":""},{"text":"   "}]}"#,
+                &user_msg("2026-05-01T10:00:00Z", "real message"),
+            ],
+        );
         let n = collect(&journal, &identity, &opts).unwrap();
         assert_eq!(n, 1);
     }

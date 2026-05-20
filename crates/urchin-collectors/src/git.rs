@@ -28,7 +28,10 @@ pub struct GitOpts {
 impl GitOpts {
     pub fn defaults_for(repo: PathBuf) -> Self {
         let checkpoint_path = default_checkpoint_path(&repo);
-        Self { repo, checkpoint_path }
+        Self {
+            repo,
+            checkpoint_path,
+        }
     }
 }
 
@@ -66,7 +69,8 @@ pub fn collect_repo(journal: &Journal, identity: &Identity, opts: &GitOpts) -> R
 
     let range = format!("{}..HEAD", last_sha.as_deref().unwrap());
     let output = Command::new("git")
-        .arg("-C").arg(repo)
+        .arg("-C")
+        .arg(repo)
         .arg("log")
         .arg(&range)
         .arg("--pretty=format:%H%x09%aI%x09%an%x09%s")
@@ -99,17 +103,17 @@ pub fn collect_repo(journal: &Journal, identity: &Identity, opts: &GitOpts) -> R
             EventKind::Commit,
             format!("{} {}", short_sha(sha), subject),
         );
-        event.title     = Some(subject.to_string());
+        event.title = Some(subject.to_string());
         event.workspace = Some(repo.display().to_string());
-        event.tags      = vec![format!("author:{}", author), format!("sha:{}", sha)];
+        event.tags = vec![format!("author:{}", author), format!("sha:{}", sha)];
 
         if let Ok(parsed) = DateTime::parse_from_rfc3339(date) {
             event.timestamp = parsed.with_timezone(&Utc);
         }
 
         event.actor = Some(Actor {
-            account:   Some(identity.account.clone()),
-            device:    Some(identity.device.clone()),
+            account: Some(identity.account.clone()),
+            device: Some(identity.device.clone()),
             workspace: Some(repo.display().to_string()),
         });
 
@@ -128,8 +132,10 @@ fn is_git_repo(path: &Path) -> bool {
 
 fn head_sha(repo: &Path) -> Result<String> {
     let out = Command::new("git")
-        .arg("-C").arg(repo)
-        .arg("rev-parse").arg("HEAD")
+        .arg("-C")
+        .arg(repo)
+        .arg("rev-parse")
+        .arg("HEAD")
         .output()
         .context("git rev-parse failed to spawn")?;
     if !out.status.success() {
@@ -142,7 +148,11 @@ fn head_sha(repo: &Path) -> Result<String> {
 }
 
 fn short_sha(sha: &str) -> &str {
-    if sha.len() >= 8 { &sha[..8] } else { sha }
+    if sha.len() >= 8 {
+        &sha[..8]
+    } else {
+        sha
+    }
 }
 
 fn write_checkpoint(path: &Path, sha: &str) -> Result<()> {
@@ -175,15 +185,29 @@ mod tests {
         run("git config user.email 'test@example.com'", dir.path());
         run("git config user.name 'Test User'", dir.path());
         run("git config commit.gpgsign false", dir.path());
-        run("echo 'one' > a.txt && git add a.txt && git commit -qm 'initial'", dir.path());
+        run(
+            "echo 'one' > a.txt && git add a.txt && git commit -qm 'initial'",
+            dir.path(),
+        );
         dir
     }
 
-    fn fixture(repo: &TempDir) -> (GitOpts, Journal, Identity, tempfile::TempDir, tempfile::NamedTempFile) {
+    fn fixture(
+        repo: &TempDir,
+    ) -> (
+        GitOpts,
+        Journal,
+        Identity,
+        tempfile::TempDir,
+        tempfile::NamedTempFile,
+    ) {
         let state = tempfile::tempdir().unwrap();
         let tmp_journal = tempfile::NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp_journal.path().to_path_buf());
-        let identity = Identity { account: "t".into(), device: "t".into() };
+        let identity = Identity {
+            account: "t".into(),
+            device: "t".into(),
+        };
         let opts = GitOpts {
             repo: repo.path().to_path_buf(),
             checkpoint_path: state.path().join("git-checkpoint"),
@@ -212,8 +236,14 @@ mod tests {
         // First run: silent
         assert_eq!(collect_repo(&journal, &identity, &opts).unwrap(), 0);
 
-        run("echo 'two' > b.txt && git add b.txt && git commit -qm 'add b'", repo.path());
-        run("echo 'three' > c.txt && git add c.txt && git commit -qm 'add c'", repo.path());
+        run(
+            "echo 'two' > b.txt && git add b.txt && git commit -qm 'add b'",
+            repo.path(),
+        );
+        run(
+            "echo 'three' > c.txt && git add c.txt && git commit -qm 'add c'",
+            repo.path(),
+        );
 
         let n = collect_repo(&journal, &identity, &opts).unwrap();
         assert_eq!(n, 2);
@@ -230,7 +260,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tmp_journal = tempfile::NamedTempFile::new().unwrap();
         let journal = Journal::new(tmp_journal.path().to_path_buf());
-        let identity = Identity { account: "t".into(), device: "t".into() };
+        let identity = Identity {
+            account: "t".into(),
+            device: "t".into(),
+        };
         let opts = GitOpts {
             repo: dir.path().to_path_buf(),
             checkpoint_path: dir.path().join("checkpoint"),

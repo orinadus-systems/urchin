@@ -17,11 +17,11 @@ use urchin_core::{
 };
 
 pub struct ToolContext {
-    pub journal:    Arc<Journal>,
-    pub identity:   Arc<Identity>,
-    pub config:     Arc<Config>,
+    pub journal: Arc<Journal>,
+    pub identity: Arc<Identity>,
+    pub config: Arc<Config>,
     /// Ephemeral mode: when true, ingest/remember are no-ops.
-    pub ephemeral:  Arc<AtomicBool>,
+    pub ephemeral: Arc<AtomicBool>,
     /// Count of events suppressed during ephemeral mode.
     pub suppressed: Arc<AtomicUsize>,
 }
@@ -137,49 +137,19 @@ pub fn tool_list() -> Value {
                 "additionalProperties": false
             }
         },
-        {
-            "name": "urchin_agent_reflect",
-            "description": "Load recent journal context and emit a structured agent reflection. Reads the last N hours of events from the journal, synthesises them relative to a goal, and writes the result back as an Agent event. Use this to reason about what has happened in a workspace or across all sessions.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "goal":      { "type": "string", "description": "The question or goal to reflect on." },
-                    "hours":     { "type": "number", "description": "How many hours of history to load. Default 24." },
-                    "limit":     { "type": "number", "description": "Max context events to include. Default 30." }
-                },
-                "required": ["goal"],
-                "additionalProperties": false
-            }
-        },
-        {
-            "name": "urchin_semantic_search",
-            "description": "Semantic search over journal events using token-cosine similarity (default) or vector embeddings when URCHIN_EMBEDDER_URL is set. Returns events ranked by relevance to the query. Prefer this over urchin_search when looking for conceptually related events rather than exact keyword matches.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Natural language query describing what you are looking for." },
-                    "hours": { "type": "number", "description": "Look back this many hours. Default 168 (1 week)." },
-                    "limit": { "type": "number", "description": "Max results to return. Default 10." }
-                },
-                "required": ["query"],
-                "additionalProperties": false
-            }
-        }
     ])
 }
 
 pub fn call(name: &str, args: &Value, ctx: &ToolContext) -> Result<String> {
     match name {
-        "urchin_status"             => status(ctx),
-        "urchin_ingest"             => ingest(args, ctx),
-        "urchin_recent_activity"    => recent_activity(args, ctx),
-        "urchin_project_context"    => project_context(args, ctx),
-        "urchin_search"             => search(args, ctx),
-        "urchin_workspace_context"  => workspace_context(args, ctx),
-        "urchin_remember"           => remember(args, ctx),
-        "urchin_ephemeral"          => ephemeral(args, ctx),
-        "urchin_agent_reflect"      => agent_reflect(args, ctx),
-        "urchin_semantic_search"    => semantic_search(args, ctx),
+        "urchin_status" => status(ctx),
+        "urchin_ingest" => ingest(args, ctx),
+        "urchin_recent_activity" => recent_activity(args, ctx),
+        "urchin_project_context" => project_context(args, ctx),
+        "urchin_search" => search(args, ctx),
+        "urchin_workspace_context" => workspace_context(args, ctx),
+        "urchin_remember" => remember(args, ctx),
+        "urchin_ephemeral" => ephemeral(args, ctx),
         other => Err(anyhow::anyhow!("unknown tool: {}", other)),
     }
 }
@@ -200,7 +170,10 @@ fn status(ctx: &ToolContext) -> Result<String> {
     } else {
         out.push_str("last:     (no events yet)\n");
     }
-    out.push_str(&format!("journal:  {}\n", ctx.config.journal_path.display()));
+    out.push_str(&format!(
+        "journal:  {}\n",
+        ctx.config.journal_path.display()
+    ));
     out.push_str(&format!("intake:   {}\n", ctx.config.intake_port));
     out.push_str(&format!("vault:    {}\n", ctx.config.vault_root.display()));
     out.push_str(&format!("account:  {}\n", ctx.identity.account));
@@ -214,22 +187,22 @@ fn ingest(args: &Value, ctx: &ToolContext) -> Result<String> {
         return Ok("(ephemeral mode: event suppressed)".to_string());
     }
 
-    let content   = required_str(args, "content")?;
+    let content = required_str(args, "content")?;
     let workspace = required_str(args, "workspace")?;
-    let source    = opt_str(args, "source").unwrap_or_else(|| "mcp".to_string());
-    let title     = opt_str(args, "title");
-    let kind_raw  = opt_str(args, "kind").unwrap_or_else(|| "conversation".to_string());
-    let session   = opt_str(args, "session");
-    let tags      = opt_str_array(args, "tags");
+    let source = opt_str(args, "source").unwrap_or_else(|| "mcp".to_string());
+    let title = opt_str(args, "title");
+    let kind_raw = opt_str(args, "kind").unwrap_or_else(|| "conversation".to_string());
+    let session = opt_str(args, "session");
+    let tags = opt_str_array(args, "tags");
 
     let mut event = Event::new(source.clone(), parse_kind(&kind_raw), content.clone());
     event.workspace = Some(workspace.clone());
-    event.title     = title.clone();
-    event.tags      = tags;
-    event.session   = session;
+    event.title = title.clone();
+    event.tags = tags;
+    event.session = session;
     event.actor = Some(Actor {
-        account:   Some(ctx.identity.account.clone()),
-        device:    Some(ctx.identity.device.clone()),
+        account: Some(ctx.identity.account.clone()),
+        device: Some(ctx.identity.device.clone()),
         workspace: Some(workspace),
     });
 
@@ -241,9 +214,9 @@ fn ingest(args: &Value, ctx: &ToolContext) -> Result<String> {
 }
 
 fn recent_activity(args: &Value, ctx: &ToolContext) -> Result<String> {
-    let hours  = opt_f64(args, "hours").unwrap_or(24.0);
+    let hours = opt_f64(args, "hours").unwrap_or(24.0);
     let source = opt_str(args, "source");
-    let limit  = opt_usize(args, "limit").unwrap_or(20);
+    let limit = opt_usize(args, "limit").unwrap_or(20);
 
     let events = ctx.journal.query_recent(hours, source.as_deref(), limit)?;
     let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
@@ -252,8 +225,8 @@ fn recent_activity(args: &Value, ctx: &ToolContext) -> Result<String> {
 
 fn project_context(args: &Value, ctx: &ToolContext) -> Result<String> {
     let project = required_str(args, "project")?;
-    let hours   = opt_f64(args, "hours").unwrap_or(168.0);
-    let limit   = opt_usize(args, "limit").unwrap_or(30);
+    let hours = opt_f64(args, "hours").unwrap_or(168.0);
+    let limit = opt_usize(args, "limit").unwrap_or(30);
 
     let events = ctx.journal.query_project(&project, hours, limit)?;
     let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
@@ -262,8 +235,8 @@ fn project_context(args: &Value, ctx: &ToolContext) -> Result<String> {
 
 fn search(args: &Value, ctx: &ToolContext) -> Result<String> {
     let query_str = required_str(args, "query")?;
-    let hours     = opt_f64(args, "hours").unwrap_or(168.0);
-    let limit     = opt_usize(args, "limit").unwrap_or(20);
+    let hours = opt_f64(args, "hours").unwrap_or(168.0);
+    let limit = opt_usize(args, "limit").unwrap_or(20);
 
     let events = ctx.journal.query_search(&query_str, hours, limit)?;
     let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
@@ -271,7 +244,7 @@ fn search(args: &Value, ctx: &ToolContext) -> Result<String> {
 }
 
 fn workspace_context(args: &Value, ctx: &ToolContext) -> Result<String> {
-    let path  = required_str(args, "path")?;
+    let path = required_str(args, "path")?;
     let hours = opt_f64(args, "hours").unwrap_or(168.0);
     let limit = opt_usize(args, "limit").unwrap_or(40);
 
@@ -280,7 +253,11 @@ fn workspace_context(args: &Value, ctx: &ToolContext) -> Result<String> {
         return Ok(format!("No events found for workspace: {}", path));
     }
     let refs: Vec<&urchin_core::event::Event> = events.iter().collect();
-    Ok(format!("Events for {}:\n\n{}", path, query::format_events(&refs)))
+    Ok(format!(
+        "Events for {}:\n\n{}",
+        path,
+        query::format_events(&refs)
+    ))
 }
 
 fn remember(args: &Value, ctx: &ToolContext) -> Result<String> {
@@ -289,16 +266,16 @@ fn remember(args: &Value, ctx: &ToolContext) -> Result<String> {
         return Ok("(ephemeral mode: note suppressed)".to_string());
     }
 
-    let content   = required_str(args, "content")?;
-    let tags      = opt_str_array(args, "tags");
+    let content = required_str(args, "content")?;
+    let tags = opt_str_array(args, "tags");
     let workspace = opt_str(args, "workspace");
 
     let mut event = Event::new("mcp", EventKind::Decision, content.clone());
     event.workspace = workspace.clone();
-    event.tags      = tags;
+    event.tags = tags;
     event.actor = Some(Actor {
-        account:   Some(ctx.identity.account.clone()),
-        device:    Some(ctx.identity.device.clone()),
+        account: Some(ctx.identity.account.clone()),
+        device: Some(ctx.identity.device.clone()),
         workspace,
     });
 
@@ -326,85 +303,48 @@ fn ephemeral(args: &Value, ctx: &ToolContext) -> Result<String> {
             if let Err(e) = file_mode.deactivate() {
                 tracing::warn!("ephemeral: could not remove flag file: {}", e);
             }
-            Ok(format!("Ephemeral mode ended. {} event(s) were suppressed and are permanently gone.", n))
+            Ok(format!(
+                "Ephemeral mode ended. {} event(s) were suppressed and are permanently gone.",
+                n
+            ))
         }
         "status" => {
             let active = ctx.ephemeral.load(Ordering::Relaxed) || file_mode.is_active();
             let n = ctx.suppressed.load(Ordering::Relaxed);
             if active {
-                Ok(format!("Ephemeral mode: ACTIVE ({} event(s) suppressed so far)", n))
+                Ok(format!(
+                    "Ephemeral mode: ACTIVE ({} event(s) suppressed so far)",
+                    n
+                ))
             } else {
-                Ok("Ephemeral mode: inactive — all events are being recorded normally.".to_string())
+                Ok(
+                    "Ephemeral mode: inactive — all events are being recorded normally."
+                        .to_string(),
+                )
             }
         }
-        other => Err(anyhow::anyhow!("unknown action '{}'; expected start | end | status", other)),
+        other => Err(anyhow::anyhow!(
+            "unknown action '{}'; expected start | end | status",
+            other
+        )),
     }
-}
-
-fn agent_reflect(args: &Value, ctx: &ToolContext) -> Result<String> {
-    use urchin_agent::{Agent, AgentConfig};
-
-    let goal  = required_str(args, "goal")?;
-    let hours = opt_f64(args, "hours").unwrap_or(24.0);
-    let limit = opt_usize(args, "limit").unwrap_or(30);
-
-    // Build a fresh Agent using the same config paths as the server.
-    let agent_cfg_run = AgentConfig::new(goal).with_hours(hours).with_limit(limit);
-    let agent = Agent::new((*ctx.config).clone());
-    let reflection = agent.run(&agent_cfg_run)?;
-    Ok(reflection)
-}
-
-fn semantic_search(args: &Value, ctx: &ToolContext) -> Result<String> {
-    use urchin_agent::semantic::SemanticSearch;
-
-    let query  = required_str(args, "query")?;
-    let hours  = opt_f64(args, "hours").unwrap_or(168.0);
-    let limit  = opt_usize(args, "limit").unwrap_or(10);
-
-    let events = ctx.journal.read_all()?;
-    let search = SemanticSearch::new();
-    let hits   = search.search(&query, &events, hours, limit)?;
-
-    if hits.is_empty() {
-        return Ok(format!(
-            "No semantically relevant events found for: {}\n\
-             backend: {} | window: {}h | journal: {} events",
-            query,
-            search.backend_name(),
-            hours,
-            events.len(),
-        ));
-    }
-
-    let mut out = format!(
-        "semantic search — backend: {} — {:?} — {} hit(s)\n\n",
-        search.backend_name(),
-        query,
-        hits.len(),
-    );
-    for hit in &hits {
-        let ts = hit.event.timestamp.format("%Y-%m-%dT%H:%M:%SZ");
-        out.push_str(&format!(
-            "[{:.3}] {} | {} | {}\n",
-            hit.score,
-            ts,
-            hit.event.source,
-            truncate_label(&hit.event.content, 120),
-        ));
-    }
-    Ok(out)
 }
 
 fn parse_kind(s: &str) -> EventKind {
     match s {
-        "agent"        => EventKind::Agent,
-        "command"      => EventKind::Command,
-        "commit"       => EventKind::Commit,
-        "file"         => EventKind::File,
-        "decision"     => EventKind::Decision,
+        "agent" => EventKind::Agent,
+        "command" => EventKind::Command,
+        "commit" => EventKind::Commit,
+        "file" => EventKind::File,
+        "decision" => EventKind::Decision,
+        "purchase" => EventKind::Purchase,
+        "location" => EventKind::Location,
+        "health_metric" => EventKind::HealthMetric,
+        "calendar_event" => EventKind::CalendarEvent,
+        "search_query" => EventKind::SearchQuery,
+        "watch_history" => EventKind::WatchHistory,
         "conversation" => EventKind::Conversation,
-        other          => EventKind::Other(other.to_string()),
+        other => EventKind::Other(other.to_string()),
     }
 }
 
@@ -427,7 +367,9 @@ fn required_str(args: &Value, key: &str) -> Result<String> {
 }
 
 fn opt_str(args: &Value, key: &str) -> Option<String> {
-    args.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
 }
 
 fn opt_f64(args: &Value, key: &str) -> Option<f64> {
@@ -459,10 +401,13 @@ mod tests {
         let mut cfg = Config::default();
         cfg.journal_path = tmp.path().to_path_buf();
         let ctx = ToolContext {
-            journal:    Arc::new(Journal::new(tmp.path().to_path_buf())),
-            identity:   Arc::new(Identity { account: "test".into(), device: "test".into() }),
-            config:     Arc::new(cfg),
-            ephemeral:  Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            journal: Arc::new(Journal::new(tmp.path().to_path_buf())),
+            identity: Arc::new(Identity {
+                account: "test".into(),
+                device: "test".into(),
+            }),
+            config: Arc::new(cfg),
+            ephemeral: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             suppressed: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         };
         (ctx, tmp)
@@ -489,8 +434,16 @@ mod tests {
     #[test]
     fn recent_activity_filters_by_source() {
         let (ctx, _tmp) = ctx_with_tmp_journal();
-        ingest(&json!({"content": "from claude", "workspace": "/w", "source": "claude"}), &ctx).unwrap();
-        ingest(&json!({"content": "from shell",  "workspace": "/w", "source": "shell"}),  &ctx).unwrap();
+        ingest(
+            &json!({"content": "from claude", "workspace": "/w", "source": "claude"}),
+            &ctx,
+        )
+        .unwrap();
+        ingest(
+            &json!({"content": "from shell",  "workspace": "/w", "source": "shell"}),
+            &ctx,
+        )
+        .unwrap();
 
         let only_claude = recent_activity(&json!({"source": "claude"}), &ctx).unwrap();
         assert!(only_claude.contains("from claude"));
@@ -500,8 +453,16 @@ mod tests {
     #[test]
     fn project_context_matches_by_workspace_path() {
         let (ctx, _tmp) = ctx_with_tmp_journal();
-        ingest(&json!({"content": "a", "workspace": "/home/me/projects/urchin-rust"}), &ctx).unwrap();
-        ingest(&json!({"content": "b", "workspace": "/home/me/projects/other"}),        &ctx).unwrap();
+        ingest(
+            &json!({"content": "a", "workspace": "/home/me/projects/urchin-rust"}),
+            &ctx,
+        )
+        .unwrap();
+        ingest(
+            &json!({"content": "b", "workspace": "/home/me/projects/other"}),
+            &ctx,
+        )
+        .unwrap();
 
         let out = project_context(&json!({"project": "urchin-rust"}), &ctx).unwrap();
         assert!(out.contains("— a"));
@@ -511,8 +472,16 @@ mod tests {
     #[test]
     fn workspace_context_filters_by_path_prefix() {
         let (ctx, _tmp) = ctx_with_tmp_journal();
-        ingest(&json!({"content": "inside", "workspace": "/home/me/dev/urchin"}), &ctx).unwrap();
-        ingest(&json!({"content": "outside", "workspace": "/home/me/dev/other"}),  &ctx).unwrap();
+        ingest(
+            &json!({"content": "inside", "workspace": "/home/me/dev/urchin"}),
+            &ctx,
+        )
+        .unwrap();
+        ingest(
+            &json!({"content": "outside", "workspace": "/home/me/dev/other"}),
+            &ctx,
+        )
+        .unwrap();
 
         let out = workspace_context(&json!({"path": "/home/me/dev/urchin"}), &ctx).unwrap();
         assert!(out.contains("inside"));
@@ -529,7 +498,11 @@ mod tests {
     #[test]
     fn remember_writes_event() {
         let (ctx, _tmp) = ctx_with_tmp_journal();
-        let out = remember(&json!({"content": "store this idea", "tags": ["idea"]}), &ctx).unwrap();
+        let out = remember(
+            &json!({"content": "store this idea", "tags": ["idea"]}),
+            &ctx,
+        )
+        .unwrap();
         assert!(out.contains("store this idea"));
 
         let found = search(&json!({"query": "store this idea"}), &ctx).unwrap();
@@ -561,80 +534,5 @@ mod tests {
         // Journal is empty
         let journal = ctx.journal.read_all().unwrap();
         assert_eq!(journal.len(), 0);
-    }
-
-    #[test]
-    fn agent_reflect_writes_and_returns_reflection() {
-        let (ctx, _tmp) = ctx_with_tmp_journal();
-
-        // Seed a journal event so context loader has something.
-        ingest(
-            &json!({"content": "debugged the auth flow", "workspace": "/w", "source": "shell"}),
-            &ctx,
-        )
-        .unwrap();
-
-        let result = call(
-            "urchin_agent_reflect",
-            &json!({"goal": "what did I work on?", "hours": 1, "limit": 10}),
-            &ctx,
-        )
-        .unwrap();
-
-        assert!(result.contains("what did I work on?") || result.contains("Reflection"));
-
-        let events = ctx.journal.read_all().unwrap();
-        let has_agent = events.iter().any(|e| e.source == "urchin-agent");
-        assert!(has_agent, "agent event was not written back to journal");
-    }
-
-    #[test]
-    fn semantic_search_finds_relevant_events() {
-        let (ctx, _tmp) = ctx_with_tmp_journal();
-
-        ingest(&json!({"content": "debugged the auth token refresh flow", "workspace": "/w", "source": "shell"}), &ctx).unwrap();
-        ingest(&json!({"content": "solar panel energy output metrics",     "workspace": "/w", "source": "shell"}), &ctx).unwrap();
-        ingest(&json!({"content": "reviewed authentication middleware",     "workspace": "/w", "source": "claude"}), &ctx).unwrap();
-
-        let result = call(
-            "urchin_semantic_search",
-            &json!({"query": "authentication auth token", "hours": 1, "limit": 5}),
-            &ctx,
-        )
-        .unwrap();
-
-        assert!(result.contains("auth"), "result should reference auth events: {result}");
-        assert!(!result.contains("solar"), "solar should not score above auth: {result}");
-    }
-
-    #[test]
-    fn semantic_search_empty_journal_returns_no_results() {
-        let (ctx, _tmp) = ctx_with_tmp_journal();
-
-        let result = call(
-            "urchin_semantic_search",
-            &json!({"query": "anything at all"}),
-            &ctx,
-        )
-        .unwrap();
-
-        assert!(result.contains("No semantically relevant events found"));
-    }
-
-    #[test]
-    fn semantic_search_result_includes_backend_name() {
-        let (ctx, _tmp) = ctx_with_tmp_journal();
-        ingest(&json!({"content": "rust async runtime design", "workspace": "/w"}), &ctx).unwrap();
-
-        let result = call(
-            "urchin_semantic_search",
-            &json!({"query": "rust async", "hours": 1}),
-            &ctx,
-        )
-        .unwrap();
-
-        // Without URCHIN_EMBEDDER_URL set, should use token-cosine.
-        assert!(result.contains("token-cosine") || result.contains("ollama-embed"),
-            "backend name missing from output: {result}");
     }
 }

@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -64,27 +64,53 @@ impl Config {
         if config_path.exists() {
             if let Ok(raw) = std::fs::read_to_string(&config_path) {
                 if let Ok(file_cfg) = toml::from_str::<FileConfig>(&raw) {
-                    if let Some(v) = file_cfg.vault_root    { cfg.vault_root    = v; }
-                    if let Some(v) = file_cfg.journal_path  { cfg.journal_path  = v; }
-                    if let Some(v) = file_cfg.cache_path    { cfg.cache_path    = v; }
-                    if let Some(v) = file_cfg.intake_port   { cfg.intake_port   = v; }
-                    if let Some(v) = file_cfg.remote_host   { cfg.remote_host   = Some(v); }
-                    if let Some(v) = file_cfg.cloud_url     { cfg.cloud_url     = Some(v); }
-                    if let Some(v) = file_cfg.cloud_token   { cfg.cloud_token   = Some(v); }
-                    if let Some(v) = file_cfg.intake_token  { cfg.intake_token  = Some(v); }
+                    if let Some(v) = file_cfg.vault_root {
+                        cfg.vault_root = v;
+                    }
+                    if let Some(v) = file_cfg.journal_path {
+                        cfg.journal_path = v;
+                    }
+                    if let Some(v) = file_cfg.cache_path {
+                        cfg.cache_path = v;
+                    }
+                    if let Some(v) = file_cfg.intake_port {
+                        cfg.intake_port = v;
+                    }
+                    if let Some(v) = file_cfg.remote_host {
+                        cfg.remote_host = Some(v);
+                    }
+                    if let Some(v) = file_cfg.cloud_url {
+                        cfg.cloud_url = Some(v);
+                    }
+                    if let Some(v) = file_cfg.cloud_token {
+                        cfg.cloud_token = Some(v);
+                    }
+                    if let Some(v) = file_cfg.intake_token {
+                        cfg.intake_token = Some(v);
+                    }
                 }
             }
         }
 
         // Layer 2: env var overrides
-        if let Ok(v) = std::env::var("URCHIN_VAULT_ROOT")   { cfg.vault_root   = PathBuf::from(v); }
-        if let Ok(v) = std::env::var("URCHIN_JOURNAL_PATH") { cfg.journal_path = PathBuf::from(v); }
-        if let Ok(v) = std::env::var("URCHIN_INTAKE_PORT")  {
+        if let Ok(v) = std::env::var("URCHIN_VAULT_ROOT") {
+            cfg.vault_root = PathBuf::from(v);
+        }
+        if let Ok(v) = std::env::var("URCHIN_JOURNAL_PATH") {
+            cfg.journal_path = PathBuf::from(v);
+        }
+        if let Ok(v) = std::env::var("URCHIN_INTAKE_PORT") {
             cfg.intake_port = v.parse().unwrap_or(18799);
         }
-        if let Ok(v) = std::env::var("URCHIN_CLOUD_URL")    { cfg.cloud_url    = Some(v); }
-        if let Ok(v) = std::env::var("URCHIN_CLOUD_TOKEN")  { cfg.cloud_token  = Some(v); }
-        if let Ok(v) = std::env::var("URCHIN_INTAKE_TOKEN") { cfg.intake_token = Some(v); }
+        if let Ok(v) = std::env::var("URCHIN_CLOUD_URL") {
+            cfg.cloud_url = Some(v);
+        }
+        if let Ok(v) = std::env::var("URCHIN_CLOUD_TOKEN") {
+            cfg.cloud_token = Some(v);
+        }
+        if let Ok(v) = std::env::var("URCHIN_INTAKE_TOKEN") {
+            cfg.intake_token = Some(v);
+        }
 
         cfg
     }
@@ -98,9 +124,11 @@ impl Config {
             std::fs::create_dir_all(p)?;
         }
         let mut table: toml::value::Table = if path.exists() {
-            toml::from_str(&std::fs::read_to_string(&path)
-                .with_context(|| format!("reading {}", path.display()))?)
-                .with_context(|| "parsing config.toml")?
+            toml::from_str(
+                &std::fs::read_to_string(&path)
+                    .with_context(|| format!("reading {}", path.display()))?,
+            )
+            .with_context(|| "parsing config.toml")?
         } else {
             toml::value::Table::new()
         };
