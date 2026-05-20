@@ -53,6 +53,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ingest", post(ingest))
+        .route("/ingest/batch", post(ingest_batch))
         .route("/recent", get(recent))
         .route("/query", get(query))
         .with_state(state)
@@ -146,6 +147,75 @@ async fn ingest(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()})));
     }
     (StatusCode::OK, Json(json!({"id": id, "status": "ok"})))
+}
+
+const BATCH_MAX: usize = 1000;
+
+#[derive(serde::Deserialize)]
+struct BatchRequest {
+    events: Vec<Event>,
+}
+
+async fn ingest_batch(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<BatchRequest>,
+) -> (StatusCode, Json<Value>) {
+    if let Some(expected) = &state.token {
+        let authorized = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .map(|t| t == expected.as_str())
+            .unwrap_or(false);
+        if !authorized {
+            return (StatusCode::UNAUTHORIZED, Json(json!({"error": "unauthorized"})));
+        }
+    }
+
+    if state.ephemeral.is_active() {
+        let n = body.events.len();
+        return (
+            StatusCode::ACCEPTED,
+            Json(json!({"accepted": 0, "dropped": n, "errors": []})),
+        );
+    }
+
+    let events = if body.events.len() > BATCH_MAX {
+        &body.events[..BATCH_MAX]
+    } else {
+        &body.events[..]
+    };
+
+    let mut accepted = 0usize;
+    let mut dropped = body.events.len().saturating_sub(BATCH_MAX);
+    let mut errors: Vec<Value> = Vec::new();
+
+    for event in events {
+        if event.content.trim().is_empty() {
+            dropped += 1;
+            errors.push(json!({"id": event.id, "error": "content must not be empty"}));
+            continue;
+        }
+        if event.source.trim().is_empty() {
+            dropped += 1;
+            errors.push(json!({"id": event.id, "error": "source must not be empty"}));
+            continue;
+        }
+        match state.journal.append(event) {
+            Ok(_) => accepted += 1,
+            Err(e) => {
+                dropped += 1;
+                errors.push(json!({"id": event.id, "error": e.to_string()}));
+            }
+        }
+    }
+
+    if accepted > 0 {
+        let _ = state.journal.flush();
+    }
+
+    (StatusCode::OK, Json(json!({"accepted": accepted, "dropped": dropped, "errors": errors})))
 }
 
 #[derive(serde::Deserialize)]
@@ -409,6 +479,120 @@ mod tests {
         ).await.unwrap();
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    fn batch_body(events: &[(&str, &str, &str)]) -> String {
+        let items: Vec<String> = events.iter().enumerate().map(|(i, (source, kind, content))| {
+            format!(
+                r#"{{"id":"56816532-adb7-4000-8a0f-1dda8408aa{:02x}","timestamp":"2026-04-28T12:00:00Z","source":"{}","kind":"{}","content":"{}"}}"#,
+                i, source, kind, content
+            )
+        }).collect();
+        format!(r#"{{"events":[{}]}}"#, items.join(","))
+    }
+
+    #[tokio::test]
+    async fn batch_accepts_multiple_events() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
+        let app = router(state);
+
+        let body = batch_body(&[
+            ("test", "conversation", "first event"),
+            ("test", "command", "second event"),
+            ("test", "purchase", "third event"),
+        ]);
+
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest/batch")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let result = json_body(resp).await;
+        assert_eq!(result["accepted"], 3);
+        assert_eq!(result["dropped"], 0);
+    }
+
+    #[tokio::test]
+    async fn batch_partial_success_on_invalid_events() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
+        let app = router(state);
+
+        let body = r#"{"events":[
+            {"id":"56816532-adb7-4000-8a0f-1dda8408aa00","timestamp":"2026-04-28T12:00:00Z","source":"test","kind":"conversation","content":"valid"},
+            {"id":"56816532-adb7-4000-8a0f-1dda8408aa01","timestamp":"2026-04-28T12:00:00Z","source":"test","kind":"conversation","content":"   "},
+            {"id":"56816532-adb7-4000-8a0f-1dda8408aa02","timestamp":"2026-04-28T12:00:00Z","source":"test","kind":"conversation","content":"also valid"}
+        ]}"#;
+
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest/batch")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        ).await.unwrap();
+
+        let result = json_body(resp).await;
+        assert_eq!(result["accepted"], 2);
+        assert_eq!(result["dropped"], 1);
+        assert_eq!(result["errors"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn batch_drops_all_in_ephemeral_mode() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state(tmp_j.path().to_path_buf(), &tmp_e);
+        state.ephemeral.activate().unwrap();
+        let app = router(state);
+
+        let body = batch_body(&[
+            ("test", "conversation", "one"),
+            ("test", "conversation", "two"),
+        ]);
+
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest/batch")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::ACCEPTED);
+        let result = json_body(resp).await;
+        assert_eq!(result["accepted"], 0);
+        assert_eq!(result["dropped"], 2);
+    }
+
+    #[tokio::test]
+    async fn batch_requires_auth_when_token_set() {
+        let tmp_j = NamedTempFile::new().unwrap();
+        let tmp_e = TempDir::new().unwrap();
+        let state = test_state_with_token(tmp_j.path().to_path_buf(), &tmp_e, "secret");
+        let app = router(state);
+
+        let body = batch_body(&[("test", "conversation", "hello")]);
+        let resp = app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/ingest/batch")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap()
+        ).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
