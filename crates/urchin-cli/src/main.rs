@@ -71,48 +71,13 @@ enum Commands {
         #[arg(long, default_value = "168")]
         hours: f64,
     },
-    /// Vault operations
-    Vault {
-        #[command(subcommand)]
-        action: VaultAction,
-    },
     /// Manage configuration
     Config {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// ReAct agent: load journal context and emit a reflection
-    Agent {
-        #[command(subcommand)]
-        action: AgentAction,
-    },
     /// Rebuild the SQLite projection index from the JSONL journal
     RebuildIndex,
-}
-
-#[derive(Subcommand)]
-enum AgentAction {
-    /// Load recent journal context and emit a structured reflection
-    Reflect {
-        /// The goal or question to reason about
-        goal: String,
-        /// How many hours of history to load (default: 24)
-        #[arg(long, default_value = "24")]
-        hours: f64,
-        /// Max context events to include (default: 30)
-        #[arg(long, default_value = "30")]
-        limit: usize,
-    },
-}
-
-#[derive(Subcommand)]
-enum VaultAction {
-    /// Project today's journal events into ~/brain/daily/YYYY-MM-DD.md
-    Project {
-        /// Date to project (default: today, format: YYYY-MM-DD)
-        #[arg(short, long)]
-        date: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -148,6 +113,14 @@ enum CollectKind {
     Opencode,
     /// Ingest records from ~/.local/share/urchin/local-model.jsonl
     LocalModel,
+    /// Ingest from ~/.local/share/urchin/imports/google-takeout/ (location, search, watch history)
+    GoogleTakeout,
+    /// Ingest from ~/.local/share/urchin/imports/apple-health/export.xml (steps, HR, sleep, workouts)
+    AppleHealth,
+    /// Ingest CSV files from ~/.local/share/urchin/imports/bank/ (purchases)
+    BankCsv,
+    /// Ingest .ics files from ~/.local/share/urchin/imports/calendar/ (calendar events)
+    Calendar,
     /// Run every collector that has a default path (shell, git via URCHIN_REPO_ROOTS, claude, copilot, gemini)
     All,
 }
@@ -173,11 +146,9 @@ async fn main() -> Result<()> {
         Commands::Collect { which } => collect(which),
         Commands::Recent { n, source, hours }  => recent(n, source, hours),
         Commands::Query  { text, source, limit, hours } => query(text, source, limit, hours),
-        Commands::Vault  { action } => vault_cmd(action),
         Commands::Config { action } => config_cmd(action),
         Commands::Sync => sync().await,
         Commands::Pull { limit } => pull(limit).await,
-        Commands::Agent { action } => agent_cmd(action),
         Commands::RebuildIndex => rebuild_index(),
     }
 }
@@ -384,12 +355,19 @@ fn ingest(
     let identity = Identity::resolve();
 
     let event_kind = match kind.as_str() {
-        "agent"        => EventKind::Agent,
-        "command"      => EventKind::Command,
-        "commit"       => EventKind::Commit,
-        "file"         => EventKind::File,
-        "conversation" => EventKind::Conversation,
-        other          => EventKind::Other(other.to_string()),
+        "agent"          => EventKind::Agent,
+        "command"        => EventKind::Command,
+        "commit"         => EventKind::Commit,
+        "file"           => EventKind::File,
+        "decision"       => EventKind::Decision,
+        "purchase"       => EventKind::Purchase,
+        "location"       => EventKind::Location,
+        "health_metric"  => EventKind::HealthMetric,
+        "calendar_event" => EventKind::CalendarEvent,
+        "search_query"   => EventKind::SearchQuery,
+        "watch_history"  => EventKind::WatchHistory,
+        "conversation"   => EventKind::Conversation,
+        other            => EventKind::Other(other.to_string()),
     };
 
     let mut event = Event::new(
@@ -414,9 +392,11 @@ fn ingest(
 fn collect(which: CollectKind) -> Result<()> {
     use std::sync::Arc;
     use urchin_collectors::{
+        apple_health as health_col, bank_csv as bank_col, calendar as cal_col,
         claude as claude_col, codex as codex_col, copilot as copilot_col,
-        gemini as gemini_col, git as git_col, local_model as lm_col,
-        opencode as opencode_col, shell as shell_col, CollectorRegistry,
+        gemini as gemini_col, git as git_col, google_takeout as takeout_col,
+        local_model as lm_col, opencode as opencode_col, shell as shell_col,
+        CollectorRegistry,
     };
     use urchin_core::{config::Config, identity::Identity, journal::Journal};
 
@@ -471,6 +451,22 @@ fn collect(which: CollectKind) -> Result<()> {
         CollectKind::LocalModel => {
             let n = lm_col::collect(&journal, &identity, &lm_col::LocalModelOpts::defaults())?;
             println!("local-model: {} new events", n);
+        }
+        CollectKind::GoogleTakeout => {
+            let n = takeout_col::collect(&journal, &identity, &takeout_col::GoogleTakeoutOpts::defaults())?;
+            println!("google-takeout: {} new events", n);
+        }
+        CollectKind::AppleHealth => {
+            let n = health_col::collect(&journal, &identity, &health_col::AppleHealthOpts::defaults())?;
+            println!("apple-health: {} new events", n);
+        }
+        CollectKind::BankCsv => {
+            let n = bank_col::collect(&journal, &identity, &bank_col::BankCsvOpts::defaults())?;
+            println!("bank-csv: {} new events", n);
+        }
+        CollectKind::Calendar => {
+            let n = cal_col::collect(&journal, &identity, &cal_col::CalendarOpts::defaults())?;
+            println!("calendar: {} new events", n);
         }
         CollectKind::All => {
             let repos = resolve_repos(vec![]);
@@ -737,45 +733,6 @@ fn rebuild_index() -> Result<()> {
     index.ensure_schema()?;
     let n = index.rebuild_from_journal(&cfg.journal_path)?;
     println!("rebuilt: {} events indexed", n);
-    Ok(())
-}
-
-fn vault_cmd(action: VaultAction) -> Result<()> {
-    use chrono::NaiveDate;
-    use urchin_core::{config::Config, journal::Journal};
-    use urchin_vault::projection;
-
-    let cfg     = Config::load();
-    let journal = Journal::new(cfg.journal_path);
-
-    match action {
-        VaultAction::Project { date } => {
-            let d = match date {
-                Some(s) => NaiveDate::parse_from_str(&s, "%Y-%m-%d")
-                    .map_err(|_| anyhow::anyhow!("invalid date format, expected YYYY-MM-DD"))?,
-                None    => chrono::Local::now().naive_local().date(),
-            };
-            projection::project_daily(&journal, &cfg.vault_root, d)?;
-            println!("projected {}", d.format("%Y-%m-%d"));
-        }
-    }
-    Ok(())
-}
-
-fn agent_cmd(action: AgentAction) -> Result<()> {
-    use urchin_agent::{Agent, AgentConfig};
-    use urchin_core::config::Config;
-
-    let cfg = Config::load();
-    let agent = Agent::new(cfg);
-
-    match action {
-        AgentAction::Reflect { goal, hours, limit } => {
-            let agent_cfg = AgentConfig::new(goal).with_hours(hours).with_limit(limit);
-            let reflection = agent.run(&agent_cfg)?;
-            println!("{}", reflection);
-        }
-    }
     Ok(())
 }
 

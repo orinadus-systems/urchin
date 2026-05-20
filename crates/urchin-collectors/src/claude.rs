@@ -168,7 +168,7 @@ fn infer_kind(display: &str) -> EventKind {
     }
 }
 
-fn truncate(s: &str, n: usize) -> String {
+pub(crate) fn truncate(s: &str, n: usize) -> String {
     let s = s.trim();
     if s.chars().count() <= n {
         s.to_string()

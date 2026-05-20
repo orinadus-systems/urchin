@@ -222,7 +222,7 @@ mod tests {
         });
         let resp = handle(&req, &ctx).unwrap();
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 8);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"urchin_status"));
         assert!(names.contains(&"urchin_ingest"));
@@ -232,8 +232,6 @@ mod tests {
         assert!(names.contains(&"urchin_workspace_context"));
         assert!(names.contains(&"urchin_remember"));
         assert!(names.contains(&"urchin_ephemeral"));
-        assert!(names.contains(&"urchin_agent_reflect"));
-        assert!(names.contains(&"urchin_semantic_search"));
     }
 
     #[test]

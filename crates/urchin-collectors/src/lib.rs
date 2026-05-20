@@ -28,6 +28,10 @@ pub mod gemini;
 pub mod shell;
 pub mod git;
 pub mod agent_bridge;
+pub mod google_takeout;
+pub mod apple_health;
+pub mod bank_csv;
+pub mod calendar;
 
 // ─── Trait ───────────────────────────────────────────────────────────────────
 
@@ -85,6 +89,10 @@ impl CollectorRegistry {
         r.register(CodexCollector::new());
         r.register(OpenCodeCollector::new());
         r.register(LocalModelCollector::new());
+        r.register(GoogleTakeoutCollector::new());
+        r.register(AppleHealthCollector::new());
+        r.register(BankCsvCollector::new());
+        r.register(CalendarCollector::new());
         r
     }
 
@@ -246,4 +254,60 @@ impl Collector for LocalModelCollector {
         local_model::collect(journal, identity, &self.opts)
     }
     fn is_available(&self) -> bool { self.opts.drop_file.exists() }
+}
+
+struct GoogleTakeoutCollector {
+    opts: google_takeout::GoogleTakeoutOpts,
+}
+impl GoogleTakeoutCollector {
+    fn new() -> Self { Self { opts: google_takeout::GoogleTakeoutOpts::defaults() } }
+}
+impl Collector for GoogleTakeoutCollector {
+    fn name(&self) -> &'static str { "google-takeout" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        google_takeout::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.import_dir.exists() }
+}
+
+struct AppleHealthCollector {
+    opts: apple_health::AppleHealthOpts,
+}
+impl AppleHealthCollector {
+    fn new() -> Self { Self { opts: apple_health::AppleHealthOpts::defaults() } }
+}
+impl Collector for AppleHealthCollector {
+    fn name(&self) -> &'static str { "apple-health" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        apple_health::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.export_path.exists() }
+}
+
+struct BankCsvCollector {
+    opts: bank_csv::BankCsvOpts,
+}
+impl BankCsvCollector {
+    fn new() -> Self { Self { opts: bank_csv::BankCsvOpts::defaults() } }
+}
+impl Collector for BankCsvCollector {
+    fn name(&self) -> &'static str { "bank-csv" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        bank_csv::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.import_dir.exists() }
+}
+
+struct CalendarCollector {
+    opts: calendar::CalendarOpts,
+}
+impl CalendarCollector {
+    fn new() -> Self { Self { opts: calendar::CalendarOpts::defaults() } }
+}
+impl Collector for CalendarCollector {
+    fn name(&self) -> &'static str { "calendar" }
+    fn collect(&self, journal: &Journal, identity: &Identity) -> anyhow::Result<usize> {
+        calendar::collect(journal, identity, &self.opts)
+    }
+    fn is_available(&self) -> bool { self.opts.import_dir.exists() }
 }
