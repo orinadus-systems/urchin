@@ -39,8 +39,23 @@ impl Index {
 
     fn connect(&self) -> Result<Connection> {
         let conn = Connection::open(&self.path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;",
+        )?;
         Ok(conn)
+    }
+
+    /// Returns true if an event with the given ID is already in the index.
+    pub fn exists_by_id(&self, id: &str) -> Result<bool> {
+        let conn = self.connect()?;
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        Ok(count > 0)
     }
 
     pub fn ensure_schema(&self) -> Result<()> {
@@ -80,7 +95,7 @@ impl Index {
             return Ok(());
         }
         let mut conn = self.connect()?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         {
             let mut stmt = tx.prepare_cached(
                 "INSERT OR IGNORE INTO events
@@ -229,7 +244,7 @@ impl Index {
 
         let count = rows.len();
         let mut conn = self.connect()?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM events", [])?;
         {
             let mut stmt = tx.prepare_cached(

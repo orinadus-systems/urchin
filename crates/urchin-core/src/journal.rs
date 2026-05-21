@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 enum JournalOp {
-    Append(String),
+    Append { line: String, id: uuid::Uuid },
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -59,7 +59,13 @@ fn spawn_writer(
 
                 while let Some(op) = rx.recv().await {
                     match op {
-                        JournalOp::Append(line) => {
+                        JournalOp::Append { line, id } => {
+                            // Idempotency: skip JSONL write if the event ID is already indexed.
+                            if let Some(ref idx) = index_opt {
+                                if idx.exists_by_id(&id.to_string()).unwrap_or(false) {
+                                    continue;
+                                }
+                            }
                             let f = file.get_or_insert_with(|| open_writer(&writer_path));
                             let start = byte_offset;
                             let _ = writeln!(f, "{}", line);
@@ -142,10 +148,11 @@ impl Journal {
 
     /// Queue an event for writing. Returns immediately; the writer task flushes asynchronously.
     /// Call flush() to guarantee the event is on disk before reading back.
+    /// If a SQLite index is present and the event ID already exists, the write is a silent no-op.
     pub fn append(&self, event: &Event) -> Result<()> {
         let line = serde_json::to_string(event)?;
         self.tx
-            .send(JournalOp::Append(line))
+            .send(JournalOp::Append { line, id: event.id })
             .map_err(|_| anyhow::anyhow!("journal writer has stopped"))
     }
 

@@ -92,10 +92,10 @@ The MCP server reads the journal by loading all events into memory on each query
 `urchin vault project` writes a summarised block of the day's events into:
 
 ```
-~/brain/daily/YYYY-MM-DD.md
+{vault_root}/daily/YYYY-MM-DD.md
 ```
 
-Writes are scoped to idempotent `<!-- URCHIN:start -->` / `<!-- URCHIN:end -->` marker blocks. Content outside those markers is never touched. Running the projection twice on the same day is safe.
+Writes are scoped to `<!-- URCHIN:START:activity -->` / `<!-- URCHIN:END:activity -->` marker blocks. Content outside those markers is never touched. The write uses a same-directory temp file + `rename(2)` for atomicity. Running the projection twice on the same day is safe.
 
 ## Identity
 
