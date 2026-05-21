@@ -5,7 +5,7 @@ description: "How Urchin's passive pull collectors work, what sources are suppor
 
 ## Principle
 
-Collectors are read-only. They pull data from existing tool state files — history files, SQLite databases, JSONL logs — and translate new entries into Urchin events. They never write back to source tools, never install hooks, and never modify your shell config.
+Collectors are read-only. They pull data from existing tool state files: history files, SQLite databases, JSONL logs: and translate new entries into Urchin events. They never write back to source tools, never install hooks, and never modify your shell config.
 
 Every collector is idempotent. Running the same collector twice produces no duplicate events because each collector maintains a checkpoint.
 
@@ -13,7 +13,7 @@ Every collector is idempotent. Running the same collector twice produces no dupl
 
 Each collector stores a checkpoint file in `~/.local/share/urchin/`. On each run:
 
-1. Read the checkpoint (byte offset, SHA, row ID, or content hash — depending on collector).
+1. Read the checkpoint (byte offset, SHA, row ID, or content hash: depending on collector).
 2. Read only the entries **after** the checkpoint position.
 3. Write new entries to the journal.
 4. Update the checkpoint to the new position.
